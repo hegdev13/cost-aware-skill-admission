@@ -113,11 +113,25 @@ neighbours were only skimmed and are marked `[abstract]` there):
 ## Run it
 
 ```sh
-git clone --branch ee-update-rule <repo-url> ee-update && cd ee-update
+git clone https://github.com/hegdev13/cost-aware-skill-admission.git && cd cost-aware-skill-admission
 uv sync
 uv run pytest -q                                   # 30 tests, about 10 s
 uv run python experiments/build_viewer.py          # build the offline HTML viewer
 open results/viewer/viewer.html                    # the interactive trace
+```
+
+### Demo (for talks and newcomers)
+
+`demo/demo.html` is a single offline page that explains the project to someone who has never
+seen it: (1) a race of every policy over the same 1,000-task stream in six cost regimes, with a
+cost breakdown; (2) real decision records from the controller's log in plain English, with the
+hidden truth revealed on demand; (3) "be the controller": a JavaScript port of the controller
+where you move prices and evidence and watch the decision change. The page checks its port
+against scores computed by the Python controller and shows the result.
+
+```sh
+open demo/demo.html                                # prebuilt, 50 seeds
+uv run python demo/build_demo.py                   # rebuild (about 3-5 min; --seeds 5 for a quick one)
 ```
 
 Full instructions, including the terminal viewer, the experiments and troubleshooting, are in
