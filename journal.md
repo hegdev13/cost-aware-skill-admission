@@ -85,6 +85,10 @@ This is a claim about the literature I could read, not a proof that no one has d
 | D21 | Two viewers: offline single-file HTML and a Textual terminal app | The user asked for both; the HTML opens by double-click for an advisor meeting | `experiments/build_viewer.py`, `src/ee_update/tui.py` |
 | D22 | Real-LLM stage uses a replay table built once, then replayed by every policy | Real outcomes, identical randomness, no repeat API cost per policy, ground-truth values for regret | docs/06 (not started) |
 | D23 | Open models on the user's NVIDIA key; self-imposed rate cap (30 requests/min, concurrency 4, 12,000 calls, 20M tokens) | The user said the models are free; the cap is a conservative guess, not a documented limit | docs/06 section 6 |
+| D24 | The value-of-information enumeration uses the binomial pmf (2026-11-14) | The earlier code dropped the binomial coefficient and normalised each grid point by its own maximum, so D13's "exact" was false; fixing it changed the base regret 623 -> 610 and turned regime C from a loss into a tie | `_trial_expected_gain`, `_binom_pmf`; `test_trial_value_of_information_is_exact` |
+| D25 | Real-LLM table on Google Gemini (free tier) instead of NVIDIA-hosted open models | The NVIDIA endpoint timed out; the free tier allows 15 requests/minute and 500/day per model, which forced 10 tasks per agent call and 9 candidates per family | `experiments/build_replay_table.py`; docs/06 section 11 |
+| D26 | The proposer is the agent's own model; the judge is a different model | The agent rewriting its own notes is the self-improvement setting under study; a separate judge avoids grading its own work | `AGENT_MODEL`, `PROPOSER_MODEL`, `JUDGE_MODEL` |
+| D27 | Replay at two price settings: the simulator's assumed prices and prices measured from the recorded tokens | The assumed judge price (0.1 rollout) turned out to be 47x too low; the controller reads prices, fixed rules do not, so measured prices are the fair test | `ReplayTable.measured_prices()`; `run_replay.py` |
 
 ## 4. How the world works (as built)
 
@@ -192,22 +196,25 @@ SKIP, so the card shows "this decision buys information". (One viewer quirk is d
 
 | Experiment | What | Size | Output | Cost |
 |---|---|---|---|---|
-| Unit and contract tests | simulator invariants, calibration, accounting, trace contract, viewers | 31 tests | pytest | about 10 s |
+| Unit and contract tests | simulator invariants, calibration, accounting, trace contract, viewers | 54 tests | pytest | about 10 s |
 | **Grid** (`experiments/run_grid.py`) | 10 regimes x 17 policies x 50 seeds, T = 1,000, seeds 0 to 49 | 8,500 rows | `results/grid.csv`, `results/curves.csv` | 1,800 s recorded in `grid_meta.json` |
 | **Sweep** (`experiments/run_sweep.py`) | verification price (5 values) x proposer quality (4 values) x 8 policies x 20 seeds | 160 cells | `results/sweep.csv` | 595 s recorded in `sweep_meta.json` |
 | Summaries and figures | tables T1 to T3, six figures | - | `results/tables.md`, `figs/` | seconds |
 | Viewer build | seed 3, base regime, six policies with full traces | 6 traces | `results/viewer/` | about 1.5 s |
-| **Claim check** (`experiments/verify_claims.py`) | re-derives every number quoted in docs/07 and this journal from the raw CSVs | 41 checks | PASS/FAIL lines, exit code | about 2 s |
+| **Claim check** (`experiments/verify_claims.py`) | re-derives every number quoted in docs/07 and this journal from the raw data | 52 checks (41 on 2026-11-13) | PASS/FAIL lines, exit code | about 2 s |
 | **Margin check** (`experiments/tune_margin.py`) | acceptance margin z x gate on proposing, over the four development regimes only | 8 settings x 4 regimes x 25 seeds | `results/tuning.csv` | 634 s |
 
-No language model was used anywhere. The real-LLM replay table is specified (docs/06) and **not built**.
+| **Replay table** (`experiments/build_replay_table.py`, 2026-11-14) | 5 families x (empty skill + 9 candidates) x 40 tasks; 45 proposer and 450 judge calls on Gemini | 2,000 cells | `data/replay/` (committed) | about 700 API calls on the free tier |
+| **Replay** (`experiments/run_replay.py`) | 17 policies x 50 seeds x 600 tasks at assumed and at measured prices | 1,700 runs | `results/replay_*.csv`, `replay_tables.md`, `replay_summary.json` | about 2 min |
+
+Until 2026-11-13 no language model was used anywhere; the replay table was built on 2026-11-14 (section 9c).
 
 ## 9. Verification log (2026-11-13)
 
 What I did to check the project, and what I found. Nothing below was assumed from earlier summaries.
 
 **Reproduced exactly.**
-- Test suite: 31 pass on the working tree and on a fresh clone (`git clone`, `uv sync`, `uv run pytest -q`).
+- Test suite: 30 pass on the working tree and on a fresh clone (`git clone`, `uv sync`, `uv run pytest -q`).
 - Second pass, same day, after the documentation was written: the whole suite still passes (30), and
   `experiments/verify_claims.py` now re-derives 41 claims from the raw CSVs (headline table, paired regime
   comparison, ablation numbers, sweep claims, the quoted decision record, the recorded run metadata) and all
@@ -259,8 +266,9 @@ What I did to check the project, and what I found. Nothing below was assumed fro
 parameters: the acceptance margin `z` and whether to gate proposing. `experiments/tune_margin.py`
 sweeps both over the four **development** regimes (base, D_weak_proposer, F_drift, G_dear_judge)
 and leaves the other six regimes untouched. Result (mean regret over the four regimes, 25 seeds):
-z = 0 with the gate 716, z = 0 without the gate 782, z = 0.15 with the gate 1,403, z = 0.3 1,392,
-z = 0.5 1,459. So the shipped controller uses **z = 0 and the gate**, and the choice was made
+z = 0 with the gate 709, z = 0 without the gate 773, z = 0.15 with the gate 1,383, z = 0.3 1,370,
+z = 0.5 1,373 (re-run 2026-11-14 with the exact enumeration; on 2026-11-13 it was 716 / 782 / 1,403 / 1,392 /
+1,459, the same choice). So the shipped controller uses **z = 0 and the gate**, and the choice was made
 without looking at A, B, C, E, H or J. Any future change to `z` or to the gate must be re-checked
 this way.
 
@@ -284,6 +292,32 @@ this way.
 The three top-level files deliberately overlap: `README.md` is the pitch, this journal is the
 evidence, `setup.md` is the manual. Where they disagree, the code and the CSVs win.
 
+## 9c. Verification log (2026-11-14): exact VoI, and the first real-LLM replay
+
+- **VoI bug.** A review found that `_trial_expected_gain` was not the exact enumeration D13 claims (for two coin
+  flips at p = 0.5 it predicted counts 1/3, 1/3, 1/3 instead of 1/4, 1/2, 1/4). Fixed (D24) and tested against a
+  brute-force loop. Before re-running, a paired 50-seed check per regime showed the fix never hurts: within noise
+  in nine regimes, -168 +/- 158 in C.
+- **Refactor check.** The simulator's outcome draws moved into hooks (`_task_success`, `_make_candidate`,
+  `_verify`, `_judge`, `_make_root`); 64 baseline runs reproduce the previous grid's costs exactly.
+- **Full re-run** of the grid and the sweep with the fixed controller; every quoted number updated (README,
+  docs/07, paper, summary). Changes: base 610 (-142 [-179, -105] vs greedy judge); vs the judge 8 better / 2
+  tied / 0 worse; vs the best fixed rule per regime 6 / 4 / 0 (now checked by `verify_claims.py`, previously
+  only quoted); sweep 14 of 20 cells, median -112; ablations 677 / 671 / 683 / 1,147 / 1,177 / 1,286 / 1,285 /
+  1,733. The quoted decision record (f5-c9, t = 304) still exists, with PROBATE -24.7 and VERIFY -5.0.
+- **Earlier replay attempt rejected.** An uncommitted attempt (205 rows) in another worktree could not be used:
+  its agent never received a skill, its proposer read the string "WRONG_ANSWER" instead of real answers, a
+  proposer row was counted as a task success in every family's rate, the "3/3 pilot criteria" came from a mode
+  that makes no API call, token counts were estimated from characters, and rows said `google/gemma-3-4b-it`
+  while the calls went to Gemini. The task suite was kept, after fixing reversed unit conversions.
+- **Replay table built** (D25-D27): 2,000 agent-task cells, 45 proposer calls, 450 judge calls, all with the
+  service's own token counts; committed in `data/replay/`. Empty skills 0.40-0.425 (pilot criterion A passes);
+  every candidate at least ties its parent (43 better, 2 tied).
+- **Replay results** (50 seeds): at assumed prices ours 54, best fixed rule (SRN-like) 91, -37 [-62, -12]; at
+  measured prices ours 281 vs SRN-like 85, +196 [+150, +241]: the propose gate stops after 4.5 proposals because
+  the EvoGuard prior undervalues rewrites that are really worth about 45 points.
+- `verify_claims.py`: 52/52 (10 new replay claims). Test suite: 54 pass.
+
 ## 10. What is to be presented
 
 **One-sentence message.** A rule that prices every way of finding out whether a candidate skill is good
@@ -304,8 +338,9 @@ spends less than the fixed rules in most cost regimes, never loses to the best f
 fig1 regret over the stream; fig2 where the cost goes; fig3 accuracy against tokens; fig4 the regime map;
 fig5 one candidate's decision path; fig6 ablations.
 
-**Say these limitations out loud.** No language model was involved; the candidate-quality model is calibrated
-to one paper's single benchmark; one scalar value per skill and one candidate at a time; the judge is a
+**Say these limitations out loud.** The simulator involves no language model and the real-LLM replay is small
+(five synthetic families, 45 candidates, one model family, free-tier sized); at measured prices the controller
+loses to a bounded note on that replay; the candidate-quality model is calibrated to one paper's single benchmark; one scalar value per skill and one candidate at a time; the judge is a
 fixed-accuracy sign; the controller's prior is fixed and it loses to "never update" with a weak proposer;
 it is risk-neutral and only ties when failures are very costly (regime C).
 
@@ -313,7 +348,7 @@ it is risk-neutral and only ties when failures are very costly (regime C).
 
 1. **Learn the proposer online** so the weak-proposer corner of the regime map stops losing to "never update".
 2. **Scale risk with stakes** (regime C is now a tie with the greedy judge, +115 [-121, +351]; a stake-scaled margin may turn it into a win).
-3. **Real-LLM replay** (docs/06): pilot of about 150 calls, then about 8,400 calls into a replay table, then
-   every policy replayed on real outcomes. Needs `NVIDIA_API_KEY` in the shell (it was set when last checked).
+3. **A bigger real-LLM replay** (docs/06 section 11 lists what the first one cut): harder families where
+   rewrites can hurt, a skill tree, one call per task, more models. Needs `GEMINI_API_KEY` (or a paid tier).
 4. **Heavier-tailed candidate quality** and the held-out-regime check.
 5. Re-read the abstract-only neighbours in the survey before writing related work.

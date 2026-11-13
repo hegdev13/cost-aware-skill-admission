@@ -183,6 +183,38 @@ def main() -> None:
     meta = json.loads((RESULTS / "sweep_meta.json").read_text())
     check("sweep ran 20 seeds over 20 cells", meta["seeds"] == 20 and len(meta["verify_prices"]) * len(meta["proposer_q"]) == 20)
 
+    # ---- the real-LLM replay (data/replay is committed; results/replay_summary.json is rebuilt
+    #      offline by experiments/run_replay.py)
+    rmeta = json.loads((ROOT / "data" / "replay" / "meta.json").read_text())
+    check("replay table: 2,000 agent-task cells, 45 proposer calls, 450 judge calls",
+          (rmeta["agent_cells"], rmeta["proposer_calls"], rmeta["judge_calls"]) == (2000, 45, 450))
+    rs = json.loads((RESULTS / "replay_summary.json").read_text())
+    st = rs["stats"]
+    check("replay: empty skills at 40-42.5% (inside the 25-60% band)",
+          all(0.399 < v < 0.426 for v in st["root_values"].values()), str(st["root_values"]))
+    check("replay: 96% of candidates better, none worse", round(st["frac_better"], 2) == 0.96 and st["frac_worse"] == 0)
+    check("replay: judge accuracy 0.763 on 224 pairs",
+          abs(st["judge_accuracy"] - 0.763) < 0.001 and st["judge_pairs"] == 224)
+    mp = rs["prices"]["measured"]
+    check("replay: measured prices proposal 6.27, probe 1.19, judge 4.73",
+          abs(mp["tau_prop"] - 6.27) < 0.01 and abs(mp["verify_price"] - 1.19) < 0.01 and abs(mp["judge_cost"] - 4.73) < 0.01)
+    a, me = rs["assumed"], rs["measured"]
+    check("replay, assumed prices: ours lowest non-oracle regret (54)",
+          round(a["means"]["c3_voi_propose"]["regret"]) == 54
+          and min(v["regret"] for k, v in a["means"].items() if k != "oracle") == a["means"]["c3_voi_propose"]["regret"])
+    d, hw, _ = a["ours_minus_best"]
+    check("replay, assumed prices: ours - SRN-like = -37 [-62, -12]",
+          a["best_fixed"] == "srn_like" and round(d) == -37 and round(d - hw) == -62 and round(d + hw) == -12)
+    d, hw, _ = me["ours_minus_best"]
+    check("replay, measured prices: ours - SRN-like = +196 [+150, +241] (ours loses)",
+          me["best_fixed"] == "srn_like" and round(d) == 196 and round(d - hw) == 150 and round(d + hw) == 241)
+    d, hw, _ = me["ours_minus_judge"]
+    check("replay, measured prices: ours - greedy judge = -216 [-271, -161]",
+          round(d) == -216 and round(d - hw) == -271 and round(d + hw) == -161)
+    check("replay, measured prices: ours asks for 4.5 proposals, success 0.793",
+          round(me["means"]["c3_voi_propose"]["proposals"], 1) == 4.5
+          and round(me["means"]["c3_voi_propose"]["success_rate"], 3) == 0.793)
+
     print(f"\n{CHECKS - len(FAILS)}/{CHECKS} claims verified")
     if FAILS:
         print("FAILED: " + "; ".join(FAILS))

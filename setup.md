@@ -1,9 +1,9 @@
 # Setup and usage
 
-Everything here was run on a fresh clone of branch `ee-update-rule` on 2026-11-13 (macOS, Apple silicon):
-`uv sync`, the test suite (31 pass), building the viewer, and the terminal viewer's usage message.
-Nothing in this project needs a GPU, an API key, or a network connection, except the real-LLM stage, which is
-specified but not built (section 9).
+Everything here was run on a fresh clone on 2026-11-14 (macOS, Apple silicon): `uv sync`, the test suite
+(54 pass), building the viewer, the terminal viewer's usage message, and the real-LLM replay. Nothing in this
+project needs a GPU, an API key, or a network connection, except rebuilding the real-LLM table (section 9);
+the recorded table is committed, so replaying it needs none of them.
 
 ## 1. What you need
 
@@ -34,7 +34,7 @@ uv sync --reinstall-package ee-update
 ## 3. Check that everything works
 
 ```sh
-uv run pytest -q          # expect: 31 passed, about 10 s
+uv run pytest -q          # expect: 54 passed, about 10 s
 ```
 
 The tests cover: determinism, the candidate-quality calibration against the published rewrite statistics, the cost
@@ -144,7 +144,7 @@ That path is hard-coded at the top of the script; edit it before using it elsewh
 | `src/ee_update/trace.py` | the decision log writer and reader |
 | `src/ee_update/tui.py` | the terminal viewer |
 | `experiments/` | grid, sweep, summaries, figures, viewer builder, artifact publisher |
-| `tests/` | 31 tests |
+| `tests/` | 54 tests |
 | `experiments/verify_claims.py` | re-checks every number quoted in the docs against the raw CSVs |
 | `experiments/tune_margin.py` | the acceptance-margin check over the four development regimes |
 | `docs/` | literature survey, plan, specs, results report |
@@ -160,18 +160,28 @@ That path is hard-coded at the top of the script; edit it before using it elsewh
   receives observable data (`View`); hidden values are never passed in.
 - Every `Decision` you return appears in the viewer exactly as written, so give it a good `reason`.
 
-## 9. The real-LLM stage (not built)
+## 9. The real-LLM replay
 
-`docs/06_replay_table_spec.md` describes a replay table built with open models served on an NVIDIA API key.
-It needs `NVIDIA_API_KEY` set in your shell (set it yourself; do not paste it into chat, a file or a commit).
-To see which models the key lists (one metadata request, no inference):
+The recorded table is committed in `data/replay/` (skills with their text, every agent-task outcome with the
+model's answer and its tokens, every judge verdict, `meta.json`). Replaying needs no key and no network:
 
 ```sh
-curl -s -H "Authorization: Bearer $NVIDIA_API_KEY" https://integrate.api.nvidia.com/v1/models | head -c 600
+uv run python experiments/run_replay.py        # 17 policies x 50 seeds at two price settings, about 2 min
+cat results/replay_tables.md                   # the table's statistics and both policy tables
 ```
 
-The rate cap in that spec (30 requests per minute, concurrency 4, 12,000 calls, 20M tokens) is a conservative
-choice by the project, not a documented limit of the service.
+To rebuild the table you need a Google AI Studio key. Set it in your shell only (never in a file or a commit):
+
+```sh
+export GEMINI_API_KEY=...                      # or GEMINI_API_KEYS=key1,key2 to spread calls over projects
+uv run python experiments/build_replay_table.py
+```
+
+Every response is cached under `~/.cache/ee-update/gemini/`, so an interrupted build resumes and a rebuild costs
+nothing. On the free tier each model allows 15 requests per minute and a few hundred per day (500/day for the
+flash-lite models; 20/day for `gemini-3.5-flash`), which is why the agent answers ten tasks per call and the
+table is small; see `docs/06_replay_table_spec.md` section 11. A full build is about 700 calls (~15 minutes with
+one key at 14 requests per minute per model, since agent and judge use different models).
 
 ## 10. Troubleshooting
 
@@ -179,6 +189,8 @@ choice by the project, not a documented limit of the service.
 |---|---|
 | `ModuleNotFoundError: No module named 'ee_update'` | `uv sync --reinstall-package ee-update` |
 | `ModuleNotFoundError: No module named 'numpy'` | you ran the system `python3`; use `uv run python ...` |
+| `GEMINI_API_KEY(S) not set and this call is not cached` | you changed a prompt or the task suite; rebuilding needs a key (section 9) |
+| `HTTP 429` retries in the build | the free tier's per-minute or per-day quota; it backs off and retries, or add a second key with `GEMINI_API_KEYS` |
 | `viewer.html` does not exist | run `uv run python experiments/build_viewer.py` (results are git-ignored) |
 | Viewer page is blank | you have an old copy built before the 2026-11-13 fix; rebuild it |
 | Browser test skipped | Chrome not found; set `CHROME_BIN=/path/to/chrome` or ignore the skip |

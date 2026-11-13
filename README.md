@@ -8,9 +8,10 @@ proposal and judgement costs tokens. This project builds a rule that keeps an ex
 belief about each candidate and prices every action, including buying information, and then
 measures where that rule wins and where it loses.
 
-Status: the simulator stage is **complete and verified** (31 tests, 41 claims checked against
-the raw data). The real-LLM replay stage is specified but not built. Everything runs on a
-laptop CPU; no GPU, no API key, no network needed.
+Status: the simulator stage is **complete and verified**, and a first **real-LLM replay** has
+been built and run (54 tests; 52 quoted numbers re-checked against the raw data by
+`experiments/verify_claims.py`). Everything runs on a laptop CPU; the recorded real-LLM table
+is committed, so no API key is needed unless you rebuild it.
 
 ## The question
 
@@ -96,6 +97,21 @@ update" (962 vs 574) because its prior about the population of rewrites is fixed
 published calibration. That is a *learning* failure, not a decision failure, and the fix -
 estimate the proposer's quality online from candidates already tried - is the next step.
 
+### On real model outputs
+
+A replay table of real Gemini outcomes (`data/replay/`: 5 task families x 40 tasks, 45
+candidate skills written by the model from its own failures, 2,000 recorded agent-task
+outcomes, 450 judge verdicts), with every policy replayed on it over 50 seeds:
+
+- **At the simulator's prices the controller wins on real outcomes**: lowest regret of every
+  non-oracle policy, -37 [-62, -12] against the best fixed rule (an SRN-like bounded note).
+- **At the prices the calls actually cost, it loses to the bounded note**: +196 [+150, +241].
+  A real judge call costs 4.7 task rollouts (assumed 0.1) and a proposal 6.3 (assumed 1). Its
+  prior expects small, often harmful rewrites, but 96% of the real rewrites were better (by
+  about 45 points of success), so its propose gate stops asking too early.
+- That is the RSI Tax result on real outputs, and the clearest case yet for learning the
+  proposer's quality online. The real judge was right 76% of the time (assumed 70%).
+
 ## What is new
 
 Checked against the literature in `docs/01_literature_survey.md` (read November 2026; some
@@ -116,7 +132,7 @@ neighbours were only skimmed and are marked `[abstract]` there):
 ```sh
 git clone https://github.com/hegdev13/cost-aware-skill-admission.git && cd cost-aware-skill-admission
 uv sync
-uv run pytest -q                                   # 31 tests, about 10 s
+uv run pytest -q                                   # 54 tests, about 15 s
 uv run python experiments/build_viewer.py          # build the offline HTML viewer
 open results/viewer/viewer.html                    # the interactive trace
 ```
@@ -152,7 +168,7 @@ the log schema, what was run, what was found, and what is left - is in
 | `docs/03_outputs_and_presentation.md` | the figure and table plan, possible outcomes |
 | `docs/04_simulator_spec.md` | the simulator design and its calibration, plus the amendments that record where the build differs from the spec |
 | `docs/05_decision_trace_and_ui_spec.md` | the event log, how explore/exploit is labelled, the two viewers |
-| `docs/06_replay_table_spec.md` | the real-LLM replay table, task suite, models, rate cap (not built) |
+| `docs/06_replay_table_spec.md` | the real-LLM replay table, task suite, models, rate cap, and what the build changed (section 11) |
 | `docs/07_results_report.md` | the results, the regime map, the ablations, the limitations |
 | `src/ee_update/config.py` | every parameter and the ten named regimes |
 | `src/ee_update/sim.py` | the simulator and the decision loop |
@@ -160,7 +176,12 @@ the log schema, what was run, what was found, and what is left - is in
 | `src/ee_update/trace.py` | the append-only decision log |
 | `src/ee_update/tui.py` | the terminal viewer |
 | `experiments/` | grid, sweep, summaries, figures, viewer builder, claim verifier, artifact publisher |
-| `tests/` | 31 tests: simulator invariants, calibration, accounting, trace contract, viewers |
+| `src/ee_update/tasks.py` | the real-LLM task suite: 5 families with hidden conventions, exact-match verifiers |
+| `src/ee_update/llm.py` | a cached Gemini client (real token counts; key from the environment) |
+| `src/ee_update/replay.py` | replays any policy on the recorded table, charging assumed or measured prices |
+| `data/replay/` | the recorded real-LLM table (skills, outcomes, judge verdicts, metadata) |
+| `experiments/build_replay_table.py` | builds that table (needs `GEMINI_API_KEY`; cached and resumable) |
+| `tests/` | 54 tests: simulator invariants, calibration, accounting, trace contract, viewers, replay, task suite |
 | `figs/` | the six publication figures (PDF and SVG) |
 | `results/` | generated CSVs, traces and the HTML viewer (git-ignored; rebuild with the scripts above) |
 
@@ -171,6 +192,7 @@ uv run python experiments/run_grid.py --seeds 50     # 10 regimes x 17 policies 
 uv run python experiments/run_sweep.py --seeds 20    # price x proposer-quality sweep, about 10 min
 uv run python experiments/summarize.py               # writes results/tables.md
 uv run python experiments/make_figures.py            # writes figs/fig1..fig6
+uv run python experiments/run_replay.py              # replays every policy on the recorded real-LLM table, about 2 min
 uv run python experiments/verify_claims.py           # re-checks every number quoted in the docs
 uv run python experiments/publish_artifacts.py       # copies report, figures, data, viewer to the artifacts folder
 ```
@@ -181,13 +203,14 @@ claims and the quoted decision record from the raw CSVs and prints PASS/FAIL for
 
 ## Next steps
 
-1. **Learn the proposer online** so the weak-proposer corner of the regime map stops losing
-   to "never update" - the update rule learning its own environment.
-2. **Scale risk with the stakes** to recover the costly-failure regime without breaking the
-   base regime.
-3. **Real-LLM replay** (`docs/06_replay_table_spec.md`): a pilot, then a replay table built
-   with open models on an NVIDIA key, then every policy replayed on real outcomes and shown
-   in the same viewers. The simulator says which decisions to look at; the replay says
-   whether the logic survives real model behaviour.
+1. **Learn the proposer online.** The fixed prior is the controller's one real weakness in
+   both directions: with a weak proposer it over-asks (loses to "never update"), and on the
+   real table, where rewrites are large and almost always good, it under-asks (loses to the
+   bounded note at measured prices).
+2. **Scale risk with the stakes** to turn the costly-failure tie into a win without breaking
+   the base regime.
+3. **A bigger real-LLM replay**: harder families where rewrites can hurt, a skill tree
+   (rewrites of the current incumbent), one call per task, more models, and the trace
+   viewers on a real run.
 4. Heavier-tailed candidate quality, and the held-out-regime check of the controller's
    hyperparameters.

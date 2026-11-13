@@ -91,7 +91,7 @@ kbd{font:12px ui-monospace,Menlo,monospace;background:var(--soft);border:1px sol
   <!-- 1. RACE -->
   <section>
     <h2>1 · The race: same tasks, same candidates, different rules</h2>
-    <p class="sub">Every policy sees exactly the same 1,000-task stream and the same candidate rewrites. Each line shows the <b>extra cost</b> a policy has paid so far compared with the cheaper of two reference points: "never change anything" and an oracle that magically knows every rewrite's true quality. Lower is better. Cost is counted in task-runs: a task costs 1, a failed task costs 5 more, and a proposal, judge call or verification run each has its own price.</p>
+    <p class="sub">Every policy sees exactly the same task stream and the same candidate rewrites (1,000 simulated tasks, or 600 replayed real-LLM tasks). Each line shows the <b>extra cost</b> a policy has paid so far compared with the cheaper of two reference points: "never change anything" and an oracle that magically knows every rewrite's true quality. Lower is better. Cost is counted in task-runs: a task costs 1, a failed task costs 5 more, and a proposal, judge call or verification run each has its own price.</p>
     <div class="row" style="margin-bottom:10px">
       <select id="regime" aria-label="Cost regime"></select>
       <button id="play" class="primary">▶ Play the stream</button>
@@ -140,7 +140,7 @@ kbd{font:12px ui-monospace,Menlo,monospace;background:var(--soft);border:1px sol
     </div>
   </section>
 
-  <p class="note" style="margin-top:20px">Built by <kbd>demo/build_demo.py</kbd> from the simulator in <kbd>src/ee_update</kbd>. Every number above comes from simulated task streams. No language model is called.</p>
+  <p class="note" style="margin-top:20px">Built by <kbd>demo/build_demo.py</kbd> from the simulator in <kbd>src/ee_update</kbd>. The first six settings are simulated; the two "Real LLM" settings replay recorded Gemini outcomes from <kbd>data/replay</kbd>. No language model is called by this page.</p>
 </div>
 
 <script>
@@ -156,7 +156,7 @@ const ORDER = ["c3_voi_propose", "greedy_judge", "srn_like", "threshold_promote"
 const visible = new Set(["c3_voi_propose", "greedy_judge", "srn_like", "accept_all", "static", "oracle"]);
 let progress = 1, anim = null;
 
-$("#meta").textContent = `Averaged over ${DATA.seeds} random seeds (the paper uses 50). Six task families, 1,000 tasks per run.`;
+$("#meta").textContent = `Averaged over ${DATA.seeds} random seeds (the paper uses 50).`;
 
 // ---------------------------------------------------------------- 1. race
 const regSel = $("#regime");
@@ -192,7 +192,8 @@ function drawRace() {
     s += `<line x1="${L}" x2="${W - Rm}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--line")}"/>`;
     s += `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
   }
-  for (let t = 0; t <= 1000; t += 200) s += `<text x="${x(t / 1000 * (n - 1))}" y="${H - 12}" text-anchor="middle">${t}</text>`;
+  const TT = R.T || 1000, tstep = TT >= 1000 ? 200 : 100;
+  for (let t = 0; t <= TT; t += tstep) s += `<text x="${x(t / TT * (n - 1))}" y="${H - 12}" text-anchor="middle">${t}</text>`;
   s += `<text x="${(L + W - Rm) / 2}" y="${H}" text-anchor="middle">tasks seen</text>`;
   s += `<text x="14" y="${(T + H - B) / 2}" transform="rotate(-90 14 ${(T + H - B) / 2})" text-anchor="middle">extra cost so far</text>`;
   const labels = [];

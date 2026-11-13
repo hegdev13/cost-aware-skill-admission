@@ -1,6 +1,6 @@
 # Replay-table specification (real-LLM stage, Phases P3–P4)
 
-Status: specification only. No API call has been made for this stage. The only API contact so far was one model-list request (metadata, no inference).
+Status: **built and replayed (2026-11-14), with the deviations listed in section 11.** The table is in `data/replay/` (built by `experiments/build_replay_table.py`), every policy is replayed by `experiments/run_replay.py`, and the results are in `docs/07_results_report.md` section 6. An earlier uncommitted attempt (205 rows) is superseded: its agent never saw a skill, its proposer read a placeholder instead of real failures, a proposer row was counted as a task success, and its token counts were estimates.
 
 ## 1. Idea
 Run every candidate skill on every task of its family **once** with a real open model, store the outcomes and token counts in a table, then let every policy **replay** from that table. This gives real-LLM results, identical randomness for all policies, zero extra API cost per policy, and a ground-truth value for every skill (its success rate over all tasks), so regret against an oracle is measurable on real outputs.
@@ -60,3 +60,27 @@ For every (skill, task) pair in the same family: `success` (0/1), `prompt_tokens
 ## 10. Limitations
 - Synthetic task families, not a standard benchmark. It is real LLM behavior on controlled tasks, which is what makes the explore/exploit mechanics visible; an ALFWorld-style multi-step stage is an optional later extension.
 - Finite skill tree; one agent model; temperature-0 single draw per cell (determinism check only on a subsample).
+
+## 11. As built (2026-11-14): deviations from this spec
+
+| Spec | As built | Why |
+|---|---|---|
+| Small open models on an NVIDIA key | Google Gemini on the free tier: agent and proposer `gemini-3.5-flash-lite`, judge `gemini-3.1-flash-lite`, temperature 0 | The NVIDIA endpoint timed out; the Gemini key worked. The agent rewriting its own notes (same model as proposer) is the standard self-improvement setup. `gemini-3.5-flash` (a stronger proposer) allows 20 requests/day on the free tier |
+| One agent call per (skill, task) | The agent answers 10 tasks per call as a JSON list; each task is still checked on its own, and a call's tokens are split evenly over its tasks | Free tier: 15 requests/minute and 500/day per model and project |
+| A skill tree, ~200 skills | Per family the empty skill plus 9 candidates, each written from a different random sample of 2-4 of the empty skill's real failures on the stream tasks (prompt, expected answer, the model's answer). 50 skills, 2,000 agent-task cells, 45 proposer calls, 450 judge calls | Quota. Candidates are rewrites of the empty skill, so in the replay the proposer does not see the current incumbent |
+| Judge: real pairwise comparisons | One verdict per ordered pair of a family's skills (both presentation orders); the judge sees four example stream tasks and the two notes. Repeated questions alternate the two orders | Precomputed so the replay costs nothing per policy |
+| Verifier | Exact match after stripping a surrounding Markdown code fence; JSON compared in canonical form | Chat models fence answers even when told not to |
+| Task suite | As section 3, with one bug fixed: half the unit conversions expected the reverse direction of what the prompt asked | Found while porting the suite |
+
+**Pilot criteria, measured:** (A) empty-skill success 40-42.5% in all 5 families (band 25-60%): pass.
+(B) every proposer output is a non-empty note, and candidates differ in value: pass, but **no candidate is worse
+than the empty skill** (43 of 45 better, 2 tied), so "some candidates do not beat their parent" fails; the
+conventions are learnable from one or two diffs. (C) determinism: every call is cached by its exact prompt, so a
+rebuild returns identical responses; repeated live calls at temperature 0 were not measured separately.
+
+**Replay world.** 5 families, 600 tasks per run (120 per family; each family's 30 stream tasks in a
+seed-shuffled order, cycling), 50 seeds that shuffle the stream order and the order in which candidates are
+offered. Live outcomes, verification outcomes (held-out tasks) and judge verdicts are all recorded answers.
+Costs are charged twice: at the simulator's assumed prices and at prices **measured** from the recorded tokens
+(one task rollout = 65.6 tokens; a proposal = 6.27 rollouts, a verification probe 1.19, a judge call 4.73).
+

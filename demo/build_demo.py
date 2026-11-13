@@ -38,7 +38,31 @@ REGIMES = {
     "D_weak_proposer": ("Weaker proposer", "Good rewrites are half as likely (proposer quality 0.5)."),
     "G_dear_judge": ("Judge is pricier", "A pairwise judge call costs 1.0 instead of 0.1."),
     "J_no_judge": ("Judge is unaffordable", "A judge call costs 100. Rules that always ask the judge collapse."),
+    "replay_assumed": ("Real LLM, simulator prices",
+                       "Recorded Gemini outcomes (data/replay): 5 task families, rewrites written by the model itself. "
+                       "Prices as in Base."),
+    "replay_measured": ("Real LLM, measured prices",
+                        "Same recorded outcomes, but every action costs what the real calls cost: a judge call 4.7 "
+                        "task-runs, a proposal 6.3. Here ours loses to the bounded note."),
 }
+TABLE = ROOT / "data" / "replay"
+_table = None
+
+
+def _replay_table():
+    global _table
+    if _table is None:
+        from ee_update.replay import ReplayTable
+        _table = ReplayTable.load(TABLE)
+    return _table
+
+
+def _cfg(rname):
+    if rname.startswith("replay_"):
+        from ee_update.replay import replay_config
+        t = _replay_table()
+        return replay_config(**(t.measured_prices() if rname == "replay_measured" else {}))
+    return regime(rname)
 POLICIES = {
     "static": "Never update",
     "accept_all": "Accept everything",
@@ -55,7 +79,11 @@ POINTS = 101
 
 def _job(args):
     rname, pol, seed = args
-    r = run_one(regime(rname), pol, seed)
+    if rname.startswith("replay_"):
+        from ee_update.replay import run_replay
+        r = run_replay(_replay_table(), _cfg(rname), pol, seed)
+    else:
+        r = run_one(regime(rname), pol, seed)
     return rname, pol, seed, dict(
         cum=r["cum_cost"], total=r["total_cost"], fails=r["fails"], tasks=r["task_tokens"],
         proposal=r["proposal"], verify=r["verify"], judge=r["judge"], success=r["success_rate"],
@@ -73,8 +101,9 @@ def race_data(seeds: int, procs: int) -> dict:
             if (i + 1) % 200 == 0:
                 print(f"  {i + 1}/{len(jobs)} runs", flush=True)
     out = {}
-    idx = np.linspace(0, 999, POINTS).astype(int)
     for rn, (label, desc) in REGIMES.items():
+        T = _cfg(rn).T
+        idx = np.linspace(0, T - 1, POINTS).astype(int)
         ref_curve = np.mean([np.minimum(res[(rn, "static", s)]["cum"], res[(rn, "oracle", s)]["cum"])
                              for s in range(seeds)], axis=0)
         ref_total = np.mean([min(res[(rn, "static", s)]["total"], res[(rn, "oracle", s)]["total"])
@@ -86,10 +115,10 @@ def race_data(seeds: int, procs: int) -> dict:
             m = {k: float(np.mean([r[k] for r in rows])) for k in
                  ("total", "fails", "tasks", "proposal", "verify", "judge", "success", "harmful", "accepts", "proposals")}
             m["regret"] = m["total"] - float(ref_total)
-            m["fail_cost"] = m["fails"] * regime(rn).c_fail
+            m["fail_cost"] = m["fails"] * _cfg(rn).c_fail
             m["curve"] = [round(float(x), 1) for x in curve[idx]]
             pols[p] = m
-        out[rn] = dict(label=label, desc=desc, policies=pols)
+        out[rn] = dict(label=label, desc=desc, policies=pols, T=T)
     return out
 
 
