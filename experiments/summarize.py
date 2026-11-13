@@ -123,10 +123,10 @@ def main() -> None:
     out.append("| regime | ours - greedy judge (95% CI) | seeds where ours is better |")
     out.append("|---|---|---|")
     for rg in regimes:
-        if ("greedy_judge", rg) not in per:
+        if (rg, "greedy_judge") not in per:
             continue
-        a = [per[("c3_voi_propose", rg)][s]["regret"] for s in per[("c3_voi_propose", rg)]]
-        b = [per[("greedy_judge", rg)][s]["regret"] for s in per[("greedy_judge", rg)]]
+        a = [per[(rg, "c3_voi_propose")][s]["regret"] for s in per[(rg, "c3_voi_propose")]]
+        b = [per[(rg, "greedy_judge")][s]["regret"] for s in per[(rg, "greedy_judge")]]
         m, ci, frac = paired(a, b)
         out.append(f"| {rg} | {m:+,.0f} [{m - ci:+,.0f}, {m + ci:+,.0f}] | {frac * 100:.0f}% |")
     out.append("")

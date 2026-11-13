@@ -344,7 +344,7 @@ class BeliefController(Policy):
         return float((w_prior * total).sum())
 
     # --- action values -----------------------------------------------------
-    def _scores(self, v: View, c: ObsView | None):
+    def _scores(self, v: View, c: ObsView | None, allow_trial=True):
         pub, H = v.pub, v.horizon
         cf, q_p = pub["c_fail"], pub["q_p"]
         im, iv = self._inc_belief(v.inc)
@@ -361,14 +361,21 @@ class BeliefController(Policy):
             gain = self._judge_expected_gain(w)
             sc["JUDGE"] = cf * H * gain - pub["judge_cost"]
             info["judge_info"] = dict(expect_gain=gain)
-        if self.allow_probate:
+        if self.allow_probate and allow_trial:
+            # A live trial occupies the family's single candidate slot, so every task
+            # it consumes is an update opportunity in which no new candidate could be
+            # requested.  That opportunity cost is what makes trials dearer than they
+            # look: they are paid for in lost chances, not only in failures.
+            fresh_sc, _ = self._scores(v, None, allow_trial=False)
+            v_opp = max(0.0, max(fresh_sc.values()) - pub["tau_prop"])
             best = (-1e18, None, None)
             for n in self.PROBE_N:
                 Hn = max(H - n / q_p, 0.0)
                 gain = self._trial_expected_gain(w, im, n)
-                val = cf * Hn * gain + n * cf * mu
+                opps = (n / q_p) / max(pub["opp_every"], 1)
+                val = cf * Hn * gain + n * cf * mu - opps * v_opp
                 if val > best[0]:
-                    best = (val, n, dict(expect_gain=gain))
+                    best = (val, n, dict(expect_gain=gain, opps=opps, v_opp=v_opp))
             sc["PROBATE"] = best[0]
             info["best_probe_n"] = best[1]
             info["probe_info"] = best[2]

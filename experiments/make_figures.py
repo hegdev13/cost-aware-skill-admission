@@ -53,15 +53,27 @@ LABEL = {
     "c1_flat_prior": "ours, flat prior",
 }
 SHORT = {
-    "static": "never\nupdate",
-    "accept_all": "accept\nall",
+    "static": "never update",
+    "accept_all": "accept all",
     "srn_like": "SRN-like",
-    "greedy_judge": "greedy\njudge",
-    "threshold_promote": "thresh.\npromote",
-    "probe_gate": "probe\ngate",
-    "always_verify": "always\nverify",
-    "c1_voi": "ours\n(no gate)",
+    "greedy_judge": "greedy judge",
+    "threshold_promote": "threshold promote",
+    "probe_gate": "probe gate",
+    "always_verify": "always verify",
+    "c1_voi": "ours (no gate)",
     "c3_voi_propose": "ours",
+}
+SHORT_VAR = {
+    "c3_voi_propose": "ours", "c1_voi": "no gate", "c3_greedy_mean": "no info",
+    "c3_probe_only": "no verif", "c3_verify_only": "no prob",
+    "c3_no_judge": "no judge", "c1_conservative": "1-sigma",
+    "c1_risk_averse": "2-sigma", "c1_flat_prior": "flat",
+}
+SHORT_REG1 = {
+    "base": "base", "A_cheap_verify": "cheap verify", "B_costly_verify": "costly verify",
+    "C_costly_fail": "costly failure", "D_weak_proposer": "weak proposer",
+    "E_gen_gap": "gen. gap", "F_drift": "drift", "G_dear_judge": "expensive judge",
+    "H_noisy_judge": "noisy judge", "J_no_judge": "judge unavailable",
 }
 SHORT_REG = {
     "base": "base", "A_cheap_verify": "cheap\nverify", "B_costly_verify": "costly\nverify",
@@ -121,7 +133,7 @@ def mean_ci(vals):
 # ------------------------------------------------------------------ F1 curves
 def fig_regret_curves(curves, regimes=("base", "J_no_judge")):
     use_style()
-    fig, axes = figure_grid(1, 2, width=TEXT, ratio=0.5, sharey=True)
+    fig, axes = figure_grid(1, 2, width=TEXT, ratio=0.5, sharey=False)
     panel_labels(axes, ["(a)", "(b)"])
     ax0, ax1 = np.ravel(axes)
     for ax, reg in zip((ax0, ax1), regimes):
@@ -136,15 +148,21 @@ def fig_regret_curves(curves, regimes=("base", "J_no_judge")):
                 half = M.std(axis=0, ddof=1) / np.sqrt(len(M)) * 1.96
                 ax.fill_between(ts, mu - half, mu + half, color=COLOR[pol], alpha=0.18, linewidth=0)
             ax.plot(ts, mu, color=COLOR[pol], linewidth=1.5 if pol == OURS else 1.0,
-                    label=SHORT[pol].replace("\n", " "), zorder=3 if pol == OURS else 2)
+                    label=SHORT[pol], zorder=3 if pol == OURS else 2)
         ax.axhline(0, color=BASELINE, linewidth=0.7, linestyle=(0, (3, 3)))
         ax.set_xlabel("tasks seen")
         ax.set_xlim(0, None)
     ax0.set_ylabel("cumulative cost-regret (rollout-equivalents)")
     ax0.legend(frameon=False, fontsize=6, loc="upper left", ncol=2)
+    ax1.set_ylim(0, 2600)
+    ax1.set_ylabel("cumulative cost-regret (rollout-equivalents)")
     ax1.text(0.03, 0.95, "judge unavailable", transform=ax1.transAxes, ha="left", va="top",
              fontsize=6.5, color=BASELINE,
              bbox=dict(facecolor="white", edgecolor="none", pad=1.5))
+    ax1.annotate("greedy judge leaves the axis\n(final regret 20,508)",
+                 xy=(0.72, 0.62), xycoords="axes fraction", fontsize=6, color=COLOR["greedy_judge"],
+                 ha="center", va="center",
+                 bbox=dict(facecolor="white", edgecolor="none", pad=1.5))
     save(fig, str(FIGS / "fig1_regret_curves"))
     plt.close(fig)
 
@@ -171,7 +189,7 @@ def fig_cost_breakdown(d, regime="base"):
     for xi, tot in zip(x, bottom):
         ax0.text(xi, tot, f"{tot:,.0f}", ha="center", va="bottom", fontsize=5.4, color="#333333")
     ax0.set_xticks(x)
-    ax0.set_xticklabels([SHORT[p] for p in pols], fontsize=5.4)
+    ax0.set_xticklabels([SHORT[p] for p in pols], fontsize=5.6, rotation=90)
     ax0.set_ylabel("total cost (rollout-equivalents)")
     ax0.legend(frameon=False, fontsize=6, ncol=2, loc="upper left")
     ax0.set_ylim(0, bottom.max() * 1.2)
@@ -184,7 +202,7 @@ def fig_cost_breakdown(d, regime="base"):
     ax1.axhline(np.mean(d[(regime, "static")]["final_value"]), color=BASELINE, lw=0.7,
                 linestyle=(0, (3, 3)))
     ax1.set_xticks(x)
-    ax1.set_xticklabels([SHORT[p] for p in pols], fontsize=5.4)
+    ax1.set_xticklabels([SHORT[p] for p in pols], fontsize=5.6, rotation=90)
     ax1.set_ylabel("final skill value (success probability)")
     save(fig, str(FIGS / "fig2_cost_breakdown"))
     plt.close(fig)
@@ -269,7 +287,7 @@ def fig_regime_map(d, regimes):
                      capsize=2, lw=0.8)
         ax1.errorbar(m1, i, xerr=e1, fmt="D", color=COLOR[OURS], markersize=4, capsize=2, lw=0.8)
     ax1.set_yticks(range(len(regimes)))
-    ax1.set_yticklabels([SHORT_REG.get(r, r) for r in regimes], fontsize=5.8)
+    ax1.set_yticklabels([SHORT_REG.get(r, r) for r in regimes], fontsize=5.6)
     ax1.set_xlabel("mean cost-regret (rollout-equivalents)")
     ax1.legend(handles=[Line2D([], [], marker="D", color=COLOR[OURS], lw=0, label="ours"),
                          Line2D([], [], marker="o", color=BASELINE, lw=0, label="best fixed rule")],
@@ -281,103 +299,106 @@ def fig_regime_map(d, regimes):
 
 # ------------------------------------------------------------------ F6 ablations
 def fig_ablations(d, regimes):
+    """One panel: what each ingredient of the rule is worth, averaged over regimes."""
     use_style()
     variants = ["c3_voi_propose", "c1_voi", "c3_greedy_mean", "c3_probe_only", "c3_verify_only",
                 "c3_no_judge", "c1_conservative", "c1_risk_averse", "c1_flat_prior"]
-    fig, axes = figure_grid(1, 2, width=TEXT, ratio=0.48, gridspec_kw={"width_ratios": [1, 1.25]})
-    panel_labels(axes, ["(a)", "(b)"])
-    ax0, ax1 = np.ravel(axes)
-
-    rel = []
-    for v in variants:
-        ours = np.mean([np.mean(d[(r, OURS)]["regret"]) for r in regimes])
-        rel.append(np.mean([np.mean(d[(r, v)]["regret"]) for r in regimes]) / ours)
+    fig, ax = figure(width=COLUMN, ratio=0.95)
+    panel_labels(np.array([ax]))
+    ours = np.mean([np.mean(d[(r, OURS)]["regret"]) for r in regimes])
+    rel = [np.mean([np.mean(d[(r, v)]["regret"]) for r in regimes]) / ours for v in variants]
     order = list(np.argsort(rel))
     y = np.arange(len(variants))
-    ax0.barh(y, [rel[i] for i in order],
-             color=[PALETTE["blue"] if variants[i] == OURS else MUTED for i in order],
-             height=0.68, linewidth=0)
-    ax0.axvline(1.0, color=BASELINE, lw=0.8, linestyle=(0, (3, 3)))
-    ax0.set_yticks(y)
-    ax0.set_yticklabels([LABEL[variants[i]] for i in order], fontsize=6.2)
-    ax0.set_xlabel("mean regret relative to ours (>1 is worse)")
-    ax0.set_xlim(0, max(rel) * 1.15)
-
-    M = np.array([[np.mean(d[(r, v)]["regret"]) - np.mean(d[(r, OURS)]["regret"])
-                   for r in regimes] for v in variants])
-    im = ax1.imshow(M, cmap=DIVERGING, vmin=-np.abs(M).max(), vmax=np.abs(M).max(), aspect="auto")
-    ax1.set_xticks(range(len(regimes)))
-    ax1.set_xticklabels([SHORT_REG.get(r, r) for r in regimes], fontsize=4.8)
-    ax1.set_yticks(range(len(variants)))
-    ax1.set_yticklabels([LABEL[v] for v in variants], fontsize=6.2)
-    cb = fig.colorbar(im, ax=ax1, fraction=0.046, pad=0.03)
-    cb.set_label("regret minus ours")
-    cb.outline.set_linewidth(0.4)
+    ax.barh(y, [rel[i] for i in order],
+            color=[PALETTE["blue"] if variants[i] == OURS else MUTED for i in order],
+            height=0.68, linewidth=0)
+    ax.axvline(1.0, color=BASELINE, lw=0.8, linestyle=(0, (3, 3)))
+    for i in order:
+        ax.text(rel[i] + 0.04, i, f"{rel[i]:.2f}", va="center", fontsize=5.8, color="#333333")
+    ax.set_yticks(y)
+    ax.set_yticklabels([LABEL[variants[i]] for i in order], fontsize=6.2)
+    ax.set_xlabel("mean regret relative to ours (>1 is worse)")
+    ax.set_xlim(0, max(rel) * 1.18)
     save(fig, str(FIGS / "fig6_ablations"))
     plt.close(fig)
 
 
 # ------------------------------------------------------------------ F5 decision timeline
-def fig_decision_timeline(regime="base", seed=3, family=0):
+def fig_decision_timeline(regime="base", seed=3):
+    """One candidate's whole life: evidence arrives, the belief moves, a decision is taken."""
     use_style()
     cfg = mk_regime(regime)
     r = run_one(cfg, OURS, seed, trace=True)
     tr = r["trace"]
     ev = tr.events
     truth = {t["skill_id"]: t for t in tr.truth if t.get("skill_id")}
-    fam_events = [e for e in ev if e.get("family") == family]
-    tasks = [e for e in fam_events if e["type"] == "TASK_SERVED"]
-    actions = [e for e in fam_events if e["type"] == "ACTION_CHOSEN"]
+
+    # the candidate with the most decisions is the most interesting to follow
+    per_cand = defaultdict(list)
+    for e in ev:
+        if e["type"] == "ACTION_CHOSEN":
+            per_cand[e["candidate_id"]].append(e)
+    cand = max(per_cand, key=lambda c: len(per_cand[c]))
+    acts = per_cand[cand]
+    fam = acts[0]["family"]
+    served = [e for e in ev if e["type"] == "TASK_SERVED" and e["skill_id"] == cand]
 
     fig, axes = figure_grid(2, 1, width=WIDE, ratio=0.8)
     panel_labels(axes, ["(a)", "(b)"])
     ax0, ax1 = np.ravel(axes)
 
-    ax0.plot([e["t"] for e in tasks], [0] * len(tasks), " ", label="tasks")
-    ax0.scatter([e["t"] for e in tasks], [0] * len(tasks), s=9,
-                c=["#0072B2" if e["outcome"] else "#D55E00" for e in tasks], marker="s",
-                linewidth=0, zorder=3)
+    # (a) the belief about this candidate, its decisions, and the truth
+    x = [e["t"] for e in acts]
+    mu = [e["rule_inputs"]["mu_D"] for e in acts]
+    sd = [e["rule_inputs"].get("s_D", 0.0) for e in acts]
+    ax0.fill_between(x, np.array(mu) - np.array(sd), np.array(mu) + np.array(sd),
+                     color=PALETTE["blue"], alpha=0.2, linewidth=0)
+    ax0.plot(x, mu, color=PALETTE["blue"], linewidth=1.4, marker="o", markersize=3)
+    ax0.axhline(0, color=BASELINE, lw=0.7, linestyle=(0, (3, 3)))
     marks = {"ACCEPT": ("v", PALETTE["blue"]), "SKIP": ("o", MUTED),
              "PROBATE": ("^", PALETTE["orange"]), "VERIFY": ("s", PALETTE["purple"]),
              "JUDGE": ("D", PALETTE["green"])}
-    for e in actions:
-        m, col = marks.get(e["action"], ("o", MUTED))
+    for e, m in zip(acts, mu):
+        mk, col = marks.get(e["action"], ("o", MUTED))
         hollow = e["mode"] == "EXPLORE"
-        ax0.scatter([e["t"]], [0], marker=m, s=42, facecolor="none" if hollow else col,
-                    edgecolors=col, linewidths=1.0, zorder=4)
-    ax0.set_yticks([])
-    ax0.set_ylim(-1, 1)
+        ax0.scatter([e["t"]], [m], marker=mk, s=44, facecolor="none" if hollow else col,
+                    edgecolors=col, linewidths=1.2, zorder=5)
+    tr = truth.get(cand, {})
+    if tr.get("delta") is not None:
+        ax0.axhline(tr["delta"], color=PALETTE["red"], lw=1.0)
+        ax0.text(0.99, tr["delta"], "true delta", transform=ax0.get_yaxis_transform(),
+                 fontsize=6, color=PALETTE["red"], ha="right", va="bottom",
+                 bbox=dict(facecolor="white", edgecolor="none", pad=1.0))
     ax0.set_xlabel("task index")
-    ax0.set_ylabel(f"family {family}")
-    ax0.legend(handles=[Line2D([], [], marker="s", color="#0072B2", lw=0, label="task success"),
-                         Line2D([], [], marker="s", color="#D55E00", lw=0, label="task failure"),
+    ax0.set_ylabel(f"belief about {cand}")
+    ax0.legend(handles=[Line2D([], [], color=PALETTE["blue"], lw=1.4, label="belief mean +/- 1 sd"),
+                         Line2D([], [], color=PALETTE["red"], lw=1.0, label="true delta"),
                          Line2D([], [], marker="v", color=PALETTE["blue"], lw=0, label="accept"),
                          Line2D([], [], marker="^", markerfacecolor="none",
                                 markeredgecolor=PALETTE["orange"], lw=0, label="probate (explore)"),
                          Line2D([], [], marker="D", markerfacecolor="none",
                                 markeredgecolor=PALETTE["green"], lw=0, label="judge (explore)")],
-                frameon=False, fontsize=6, ncol=5, loc="upper center")
-
-    seq = [e for e in actions if (e.get("rule_inputs") or {}).get("mu_D") is not None]
-    if seq:
-        x = [e["t"] for e in seq]
-        mu = np.array([e["rule_inputs"]["mu_D"] for e in seq])
-        sd = np.array([e["rule_inputs"].get("s_D", 0.0) for e in seq])
-        ax1.fill_between(x, mu - sd, mu + sd, color=PALETTE["blue"], alpha=0.18, linewidth=0)
-        ax1.plot(x, mu, color=PALETTE["blue"], linewidth=1.3, label="belief mean")
-        ax1.axhline(0, color=BASELINE, lw=0.7, linestyle=(0, (3, 3)))
-        for e in seq:
-            m, col = marks.get(e["action"], ("o", MUTED))
-            hollow = e["mode"] == "EXPLORE"
-            ax1.scatter([e["t"]], [e["rule_inputs"]["mu_D"]], marker=m, s=30,
-                        facecolor="none" if hollow else col, edgecolors=col, linewidths=1.0,
-                        zorder=4)
-        ax1.set_xlabel("task index")
-        ax1.set_ylabel("belief about v_cand - v_inc")
-        ax1.legend(handles=[Line2D([], [], color=PALETTE["blue"], lw=1.3, label="belief mean +/- 1 sd"),
-                             Line2D([], [], color=BASELINE, lw=0.7, linestyle=(0, (3, 3)),
-                                    label="no difference")],
                    frameon=False, fontsize=6, loc="upper right")
+
+    # (b) the whole family: every task, who served it, and when the decisions happened
+    tasks = [e for e in ev if e["type"] == "TASK_SERVED" and e["family"] == fam]
+    ax1.scatter([e["t"] for e in tasks], [0] * len(tasks), s=10,
+                c=["#0072B2" if e["outcome"] else "#D55E00" for e in tasks], marker="s",
+                linewidth=0, zorder=3)
+    for e in tasks:
+        if e["skill_id"] == cand:
+            ax1.scatter([e["t"]], [0.45], s=14, marker="s", color=PALETTE["orange"], linewidth=0,
+                        zorder=4)
+    ax1.set_ylim(-0.6, 0.9)
+    ax1.set_xlim(min(x) - 15, max(x) + 15)
+    ax1.set_yticks([])
+    ax1.set_xlabel("task index")
+    ax1.set_ylabel(f"family {fam}")
+    ax1.legend(handles=[Line2D([], [], marker="s", color="#0072B2", lw=0, label="task success"),
+                         Line2D([], [], marker="s", color="#D55E00", lw=0, label="task failure"),
+                         Line2D([], [], marker="s", color=PALETTE["orange"], lw=0,
+                                label=f"served by {cand}")],
+                   frameon=False, fontsize=6, loc="upper center", ncol=3)
     save(fig, str(FIGS / "fig5_decision_timeline"))
     plt.close(fig)
 

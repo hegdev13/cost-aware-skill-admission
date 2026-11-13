@@ -1,6 +1,7 @@
 # Research plan: a cost-aware explore/exploit controller for agent skill updates
 
-Status: plan only. No code has been run and no compute spent.
+Status: phases P1, P2 and P2b are complete; the results are in `docs/07_results_report.md`.
+P3-P4 (the real-LLM replay table) have not started.
 
 ## 1. What is happening now vs what we want
 
@@ -53,9 +54,9 @@ One-sentence target: **a decision rule that, for every candidate update, picks s
 | Phase | Work | Compute | Exit criterion |
 |---|---|---|---|
 | P0 | Fix formal model, calibrate simulator parameters from published numbers, pre-register metrics and seeds | none | Spec reviewed by you |
-| P1 | Simulator + baselines + metrics + tests | CPU, minutes | Baselines reproduce expected orderings (accept-all worst under high-degradation, static best under no-signal) |
-| P2 | Proposed controllers + ablations, 30+ seeds, regime sweep | CPU, minutes to hours | Clear map of where each policy wins, with confidence intervals |
-| P2b | Decision-trace logger + HTML and TUI viewers on simulator runs (`docs/05_decision_trace_and_ui_spec.md`) | CPU, minutes | Contract tests pass; every skill creation, use, accept and reject shows its rule and inputs |
+| P1 | Simulator + baselines + metrics + tests | CPU, minutes | **done**: 25 tests; calibration, accounting, oracle dominance and ordering checks pass |
+| P2 | Proposed controllers + ablations, 30+ seeds, regime sweep | CPU, minutes to hours | **done**: 50 seeds x 10 regimes x 17 policies; the controller beats the best fixed rule in 7 regimes, ties in 1, loses in 1 |
+| P2b | Decision-trace logger + HTML and TUI viewers on simulator runs (`docs/05_decision_trace_and_ui_spec.md`) | CPU, minutes | **done**: 29 tests including the HTML/TUI contract |
 | P3 | Real-LLM replay table: pilot (~150 calls) then full build (~8,400 calls) with NVIDIA-hosted open models (`docs/06_replay_table_spec.md`) | API, free-tier assumed; capped at 12,000 calls and 20M tokens | Pilot criteria pass; table complete; real Δ distribution compared with the simulator |
 | P4 | Replay all policies on the real table, regret vs oracle, same viewers on real traces; short live-mode demo | CPU for replay; small API use for the live demo | Policy ordering on real outcomes reported next to the simulator ordering |
 | P5 | Optional: theory; optional multi-step (ALFWorld-style) stage; write-up | varies | Paper draft + interactive figures |
@@ -68,7 +69,14 @@ One-sentence target: **a decision rule that, for every candidate update, picks s
 - Hidden-value assumption: real skills have context-dependent value, not one scalar. Add a context-dependent variant in P2.
 - Overfitting controller hyperparameters to the simulator; keep a held-out regime set.
 
-## 7. Immediate next steps (no compute)
-1. Second read of AtomSearch cost section and BEAM's Beta head to settle the posterior family.
-2. Decide the cost units (tokens only, or tokens plus a failure price) and the default price ratio.
-3. Write the simulator spec (P0) as `docs/04_simulator_spec.md` before any code.
+## 7. Immediate next steps
+1. **Learn the proposer's quality online.** The regime map shows the controller loses to
+   "never update" when the proposer is weak (q = 0.25): its prior is fixed at the
+   EvoGuard calibration, so it keeps buying candidates a calibrated agent would ignore.
+   Updating the population prior from the candidates already tried is the natural fix and
+   turns the rule into something that actually learns.
+2. **Scale risk with the stakes.** The controller is risk-neutral and loses in the
+   costly-failure regime (c_fail = 20). A margin that grows with c_fail, or a value-at-risk
+   term, should recover it without breaking the base regime (a fixed 1-sigma margin destroys
+   the rule, because the rewrite effect sizes are smaller than the prior's uncertainty).
+3. Then the real-LLM replay stage (`docs/06_replay_table_spec.md`), which needs the API key.
