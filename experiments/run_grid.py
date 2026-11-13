@@ -48,13 +48,16 @@ def main() -> None:
     for rname in regimes:
         cfg = regime(rname, T=args.T)
         seeds = list(range(args.seed0, args.seed0 + args.seeds))
-        # reference cost per seed: the cheaper of never-updating and the free-information oracle
-        ref = {}
+        # reference per seed: the cheaper of never-updating and the free-information oracle
+        ref, ref_curve = {}, {}
         for s in seeds:
-            costs = {}
+            costs, curves = {}, {}
             for p in REF_POLICIES:
-                costs[p] = run_one(cfg, p, s)["total_cost"]
+                r = run_one(cfg, p, s)
+                costs[p] = r["total_cost"]
+                curves[p] = r["cum_cost"]
             ref[s] = min(costs.values())
+            ref_curve[s] = np.minimum(curves["oracle"], curves["static"])
         for pol in policies:
             for s in seeds:
                 r = run_one(cfg, pol, s)
@@ -69,12 +72,13 @@ def main() -> None:
                     rejected_good=r["rejected_good"], explore_actions=r["explore_actions"],
                     rejected_tokens=r["rejected_tokens"],
                 ))
-                if pol in ("c1_voi", "c3_voi_propose") or pol in REF_POLICIES:
-                    cum = r["cum_cost"]
-                    for t in range(0, len(cum), max(1, len(cum) // 200)):
-                        curve_rows.append(dict(regime=rname, policy=pol, seed=s, t=t,
-                                               cum_cost=float(cum[t]),
-                                               regret=float(cum[t]) - min(ref[s], float(cum[t]))))
+                cum = r["cum_cost"]
+                rc = ref_curve[s]
+                step = max(1, len(cum) // 200)
+                for t in range(0, len(cum), step):
+                    curve_rows.append(dict(regime=rname, policy=pol, seed=s, t=t,
+                                           cum_cost=float(cum[t]),
+                                           regret=float(cum[t] - min(rc[t], cum[t]))))
             print(f"  {rname:16s} {pol:20s} done ({time.time() - t0:6.1f}s)", flush=True)
 
     keys = list(rows[0].keys())

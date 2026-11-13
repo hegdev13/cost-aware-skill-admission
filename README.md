@@ -2,7 +2,9 @@
 
 Explore/exploit inside the learning-update rule of LLM agents: when should an agent keep, test, verify or skip a candidate skill/memory update, given that testing costs tokens and failures cost accuracy.
 
-Status: planning only. No experiments have been run.
+Status: the simulator, the fixed baselines and the cost-aware belief controller are
+built, tested and measured (docs/07_results_report.md). The real-LLM replay stage
+(docs/06_replay_table_spec.md) has not started; it needs an API key.
 
 ## Read in this order
 1. `docs/01_literature_survey.md`: what exists, what is covered, the gap.
@@ -14,9 +16,9 @@ Status: planning only. No experiments have been run.
 
 ## Layout
 - `docs/`: survey, plan, specs
-- `src/ee_update/`: simulator, policies, metrics (empty until Phase 1)
+- `src/ee_update/`: simulator, policies, decision trace, terminal viewer
 - `configs/`: experiment configs (YAML, seeds listed)
 - `experiments/`: run scripts
-- `results/`: raw CSVs (git-ignored)
-- `figures/`: generated figures (git-ignored)
+- `results/`: raw CSVs, traces, the HTML viewer (git-ignored)
+- `figs/`: publication figures (PDF + SVG)
 - `tests/`: unit tests

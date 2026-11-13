@@ -245,13 +245,16 @@ class BeliefController(Policy):
         pw, pt, pb = mixture_probs(A)
         hf = headroom(v_hat, A)
         d = D_GRID
+        step = float(D_GRID[1] - D_GRID[0])
         dens = np.zeros_like(d)
         neg = d < 0
         dens[neg] = pw * np.exp(d[neg] / A.worse_scale) / A.worse_scale
         pos = d > 0
         scale = max(A.better_scale * hf, 1e-4)
         dens[pos] = pb * np.exp(-d[pos] / scale) / scale
-        dens[d == 0] = pt
+        # the tie component is a point mass at D = 0; on a density grid it is the
+        # mass divided by the cell width
+        dens[d == 0] = pt / step
         return np.log(dens + 1e-300)
 
     def _inc_belief(self, o: ObsView):
@@ -300,6 +303,46 @@ class BeliefController(Policy):
         s = math.sqrt(var_c + iv)
         return self.z * 0.0 + (mu - self.z * s)
 
+    def _trial_expected_gain(self, w_prior, im, n, shift=0.0):
+        """Exact expected gain from buying n Bernoulli observations of the candidate.
+
+        The future data are a count w ~ Binomial(n, v_cand).  For every possible count
+        the posterior over D is recomputed on the grid, the controller's acceptance
+        rule is applied to it, and the realised gain D is counted only when the
+        candidate would be accepted.  Nothing is approximated by a Gaussian here.
+
+        Returns E[ D * 1{accept after the evidence} ].
+        """
+        v = np.clip(im + D_GRID + shift, 1e-6, 1 - 1e-6)
+        counts = np.arange(n + 1)
+        logp = np.outer(np.log(v), counts) + np.outer(np.log(1 - v), n - counts)
+        LL = logp - logp.max(axis=1, keepdims=True)
+        M = w_prior[:, None] * np.exp(LL)
+        post = M / M.sum(axis=0, keepdims=True)          # posterior over D for each count
+        mu_post = post.T @ D_GRID
+        var_post = post.T @ (D_GRID ** 2) - mu_post ** 2
+        accept = (mu_post - self.z * np.sqrt(np.maximum(var_post, 0.0))) > 0
+        P = np.exp(LL)
+        P /= P.sum(axis=1, keepdims=True)                 # P(count | truth), per truth
+        p_accept = P @ accept.astype(float)
+        return float((w_prior * D_GRID * p_accept).sum())
+
+    def _judge_expected_gain(self, w_prior):
+        """Exact expected gain from one pairwise judgement."""
+        a = self.A.judge_acc
+        like = np.where(D_GRID > 0, a, np.where(D_GRID < 0, 1 - a, 0.5))
+        total = np.zeros_like(D_GRID)
+        for verdict in (True, False):
+            lw = np.log(w_prior + 1e-300) + np.log(like if verdict else (1 - like) + 1e-12)
+            lw = lw - lw.max()
+            wb = np.exp(lw)
+            wb /= wb.sum()
+            mu_b = float(wb @ D_GRID)
+            var_b = float(wb @ (D_GRID ** 2)) - mu_b ** 2
+            take = (mu_b - self.z * math.sqrt(max(var_b, 0.0))) > 0
+            total += (like if verdict else (1 - like)) * D_GRID * take
+        return float((w_prior * total).sum())
+
     # --- action values -----------------------------------------------------
     def _scores(self, v: View, c: ObsView | None):
         pub, H = v.pub, v.horizon
@@ -308,8 +351,6 @@ class BeliefController(Policy):
         o = c if c is not None else ObsView("none", 0, 0, 0, 0, (), 0, False)
         w, mu, var_c = self._belief(o, im)
         s = math.sqrt(var_c + iv)
-        p_ref = min(max(im, 0.05), 0.95)
-        r = p_ref * (1 - p_ref)
         sc = {"SKIP": 0.0, "ACCEPT": cf * H * (mu - self.z * s)}
         info = dict(mu_D=mu, s_D=s, p_better=float(w[D_GRID > 0].sum()), inc_mean=im,
                     inc_sd=math.sqrt(iv), horizon=H, best_probe_n=None, best_verify_k=None)
@@ -317,51 +358,31 @@ class BeliefController(Policy):
             return sc, info
 
         if self.allow_judge:
-            sc["JUDGE"], info["judge_info"] = self._judge_value(w, mu, var_c, iv, H, cf)
+            gain = self._judge_expected_gain(w)
+            sc["JUDGE"] = cf * H * gain - pub["judge_cost"]
+            info["judge_info"] = dict(expect_gain=gain)
         if self.allow_probate:
             best = (-1e18, None, None)
             for n in self.PROBE_N:
                 Hn = max(H - n / q_p, 0.0)
-                var_c_new = 1.0 / (1.0 / max(var_c, 1e-9) + n / r)
-                pre = math.sqrt(max(var_c - var_c_new, 0.0))
-                val = cf * Hn * e_pos(mu, pre) + n * cf * mu
+                gain = self._trial_expected_gain(w, im, n)
+                val = cf * Hn * gain + n * cf * mu
                 if val > best[0]:
-                    best = (val, n, dict(pre=pre, s_new=math.sqrt(var_c_new + iv)))
+                    best = (val, n, dict(expect_gain=gain))
             sc["PROBATE"] = best[0]
             info["best_probe_n"] = best[1]
             info["probe_info"] = best[2]
         if self.allow_verify:
             best = (-1e18, None, None)
             for k in self.VERIFY_K:
-                add = 1.0 / (r / k + self.shift ** 2)
-                var_c_new = 1.0 / (1.0 / max(var_c, 1e-9) + add)
-                pre = math.sqrt(max(var_c - var_c_new, 0.0))
-                val = cf * H * e_pos(mu, pre) - k * pub["verify_price"]
+                gain = self._trial_expected_gain(w, im, k, shift=self.shift)
+                val = cf * H * gain - k * pub["verify_price"]
                 if val > best[0]:
-                    best = (val, k, dict(pre=pre, s_new=math.sqrt(var_c_new + iv)))
+                    best = (val, k, dict(expect_gain=gain))
             sc["VERIFY"] = best[0]
             info["best_verify_k"] = best[1]
             info["verify_info"] = best[2]
         return sc, info
-
-    def _judge_value(self, w, mu, var_c, iv, H, cf):
-        """Value of asking the pairwise judge once, priced at its cost."""
-        a = self.A.judge_acc
-        like = np.where(D_GRID > 0, a, np.where(D_GRID < 0, 1 - a, 0.5))
-        gains = np.zeros_like(D_GRID)
-        for verdict in (True, False):
-            lw = np.log(w + 1e-300) + np.log(like if verdict else (1 - like) + 1e-12)
-            lw = lw - lw.max()
-            wb = np.exp(lw)
-            wb = wb / wb.sum()
-            mu_b = float((wb * D_GRID).sum())
-            var_b = float((wb * (D_GRID - mu_b) ** 2).sum())
-            s_b = math.sqrt(var_b + iv)
-            take = (mu_b - self.z * s_b) > 0
-            gains += (like if verdict else (1 - like)) * (D_GRID * take)
-        expect = float((w * gains).sum())
-        val = cf * H * expect - self.A.judge_cost
-        return val, dict(expect_gain=expect, p_better_verdict=float((w * like).sum()))
 
     # --- decisions ---------------------------------------------------------
     def propose(self, v: View) -> Decision:
