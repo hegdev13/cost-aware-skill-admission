@@ -47,7 +47,9 @@ def main() -> None:
 
     report = ROOT / "docs" / "07_results_report.md"
     if report.exists():
-        shutil.copy2(report, OUT / "simulator-study-report.md")
+        # the published copy sits next to figures/, so fix the relative links
+        text = report.read_text().replace("](../figs/", "](figures/")
+        (OUT / "simulator-study-report.md").write_text(text)
     print(f"published to {OUT}")
 
 
