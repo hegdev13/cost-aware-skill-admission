@@ -1,19 +1,20 @@
 # ai-exploration-exploitation: Summary
 
 ## Project
-Cost-aware explore/exploit controller for LLM agent skill admission. Given a pool of candidate rewrites (proposer output), the agent must decide SKIP/ACCEPT/PROBATE/VERIFY/JUDGE, priced in the same currency as task execution (1 task rollout = 1 token, failed task = c_fail, comparison = judge_cost, verification probe = verify_price).
+Cost-aware explore/exploit controller for LLM agent skill admission. When a proposer offers a candidate rewrite of a skill, the agent must decide SKIP / ACCEPT / PROBATE / VERIFY / JUDGE, with every action priced in the same unit as task execution (1 task rollout = 1, a failed task costs an extra `c_fail`, a judge call costs `judge_cost`, a verification probe costs `verify_price`).
 
 ## Key Contribution
-A cost-aware decision rule that computes **expected net cost savings** for each action and picks the best. The value of information is computed **exactly** (enumerating every outcome on a grid posterior), not approximated. A live trial costs more than its failures because it blocks the family's candidate slot (opportunity cost).
+A cost-aware decision rule that computes the **expected net cost saving** of each action and picks the best. The value of information is computed **exactly** (enumerating every outcome on a grid posterior), not approximated. A live trial costs more than its failures because it blocks the family's candidate slot (opportunity cost).
 
-## Verified Results
+## Verified Results (simulator only)
 
 ### Simulator Study (P1–P2)
-- 30/30 pytest tests pass, 41/41 claim checks verified against raw CSVs
-- 13 policies evaluated across 50 seeds per cell (10 regimes × 17 policies × 50 seeds = 8,500 rows)
-- **Full controller: 623 ± 47 regret** vs greedy judge 752 ± 46 (—129, 95% CI [−166, −91], 86% of seeds improve)
-- Controller reaches near-oracle quality: 0.642 success rate vs oracle 0.647, at ~1/33 the verification cost (21 probes vs 19,776)
-- Only 20 harmful commits vs 100 for "accept every candidate"/"always verify"
+- 30/30 pytest tests pass; `experiments/verify_claims.py` re-derives 41 quoted numbers from the raw CSVs
+- 17 policies (7 baselines, 2 controllers, 7 ablations, and the free-information oracle) × 10 regimes × 50 seeds = 8,500 runs
+- **Full controller: 623 ± 47 regret** vs greedy judge 752 ± 46 (± = 95% CI half-width); paired difference −129, 95% CI [−166, −91], better on 86% of seeds
+- Lowest regret of every policy that does not see hidden values
+- Final success 0.642, close to always-verify (0.647), using 21 verification probes instead of 19,776 (about 1/940 of the verification cost). The free-information oracle reaches 0.764.
+- 20 harmful commits, against 100 for "accept every candidate" and 34 for the greedy judge ("always verify" also makes 20, at ~20,000 rollout-equivalents of verification)
 
 ### Regime Performance (vs greedy judge, 95% CI)
 | Regime | Ours − Judge | Outcome |
@@ -27,49 +28,57 @@ A cost-aware decision rule that computes **expected net cost savings** for each 
 | F_drift | −242 [−324, −160] | better |
 | G_dear_judge | −118 [−160, −77] | better |
 | H_noisy_judge | −132 [−185, −79] | better |
-| J_no_judge | −19,401 [−19,476, −19,326] | much worse |
+| J_no_judge | −19,401 [−19,476, −19,326] | better (the judge baseline collapses when a comparison costs 100) |
 
-**Across 10 regimes:** Controller significantly better in 7, tied in 1, worse in 1.
+**Against the greedy judge, across 10 regimes:** better in 8, tied in 1, worse in 1.
 
-### Ablation (base regime, all changes within 2 units or 1%)
+**Against the best fixed rule in each regime (the fairer count):** better in 6 (base, B, D, E, F, G), tied in 3 (A, H, J), worse in 1 (C). In J the best fixed rule is the SRN-like note (ours −20 [−84, +45], tied), so J's −19,401 measures the judge baseline's failure, not an advantage of ours.
+
+### Ablation (base regime; full controller = 623)
 | Variant | Base Regret | Key Insight |
 |---|---|---|
-| Without judge channel | 1,186 | Pairwise judgement is most valuable channel (563 units) |
-| Without any info channel | 1,177 | Buying info worth 554 units; rule collapses to fixed rule |
+| Without propose gate | 694 | The gate is worth 71 units |
+| Without verification channel | 671 | Paid probes add 48 units |
+| Without probation channel | 700 | Live trials add 77 units |
+| Without judge channel | 1,186 | Pairwise judgement is the most valuable channel (563 units) |
+| Without any info channel | 1,177 | Buying info is worth 554 units; rule collapses to a fixed rule |
 | 1-sigma acceptance margin | 1,515 | Risk aversion destroys the rule (rejects almost everything) |
 | 2-sigma acceptance margin | 1,315 | As above |
 | Flattened prior | 1,711 | Population prior carries most weight |
 
-### Sweep (20 cells × verify_price × proposer_q)
-- Controller wins **13 of 20 cells** (median margin −102 cost units)
-- Weak proposer (q = 0.25): controller loses to never updating (965 vs 574) — prior assumption of quality 1.0 is the failure
+### Sweep (20 cells: verify_price × proposer_q, 20 seeds each)
+- Controller wins **13 of 20 cells** (median margin −102 cost units vs the best fixed rule in the cell)
+- Weak proposer (q = 0.25): controller loses to never updating (965 vs 574); its prior assumes proposer quality 1.0
 
-### Real-LLM Pilot + Partial Table Build (P3)
-- 205 of 8,400 cells populated (2.4%) before interruption
-- 5 families × 41 cells each (40 tasks + 1 proposer call)
-- Empty-skill true values: Family 0 = 6/41 = 0.146; Families 1–4 = 17/41 = 0.415 or 13/41 = 0.317 (4 of 5 families in 25–60% band)
-- Pilot criteria: 3/3 pass (empty-skill band, proposer validity, determinism)
-- Tokens: prompt 5,023 + completion 2,075 = 7,098 total (avg ~34.6 per call)
-- Full 8,000-cell extension requires ~5h at 30 rpm, resumable via JSONL log + cache
+## Real-LLM Replay (P3–P4): planned, not run
+No language model has been called for this stage and no replay result exists. The design (`docs/06_replay_table_spec.md`):
+- 5 task families × 40 tasks with hidden, learnable conventions and exact-match verifiers; designed empty-skill success ≈ 50%
+- Two record types, counted separately: ~200 skills × 40 tasks = **8,000 agent-task cells**, plus ~**200 proposer calls**; with a ~150-call pilot, about **8,400 API calls** in total (~5 h at 30 requests/min)
+- Pilot pass criteria: empty-skill success 25–60% on ≥4 of 5 families; valid proposer outputs with some candidates better and some worse than their parent; ≥95% determinism at temperature 0
+- Every policy is then replayed from the table, with cost reported both in rollout-equivalents and in logged tokens
 
-### Key Design Properties
+## Key Design Properties
 - **Grid posterior** over D = v_cand − v_inc, 181 points, prior calibrated to EvoGuard (42.2% worse, 7.7% tie, 50% better)
-- **Exact VoI**: enumerate all binomial outcomes, recompute posterior, count gain only if candidate would be accepted
-- **Opportunity cost**: live trial blocks family's candidate slot; every consumed task is a lost update opportunity
-- **Propose gate**: only ask proposer when best action on fresh candidate is worth more than the proposal itself
+- **Exact VoI**: enumerate all binomial outcomes, recompute the posterior, count gain only if the candidate would be accepted
+- **Opportunity cost**: a live trial blocks the family's candidate slot; every consumed task is a lost update opportunity
+- **Propose gate**: ask the proposer only when the best action on a fresh candidate is worth more than the proposal
 - **Seven baselines**: never update, accept every, SRN-like note, greedy judge, threshold promote, probe gate, always verify
 
 ## Limitations
-- Simulated stream: costs in rollout-equivalents, not real dollars
-- Judge accuracy fixed at 0.7; real comparisons noisier/biased
+- Simulated stream: costs in rollout-equivalents, not real tokens or dollars
+- No language model involved in any reported result
+- Judge accuracy fixed at 0.7; real comparisons are noisier and biased
 - Skill value is a scalar per family; context-dependent skills not represented
-- No language model involved in simulator results
 - Exponential tail shape is an assumption; lognormal sensitivity not yet run
 
 ## Files
-- `paper.tex` at repository root → compiles to `paper.pdf` (7 pages) via `pdflatex`
-- `results/grid.csv`: 10 regimes × 17 policies × 50 seeds = 8,500 rows
-- `results/curves.csv`: per-run regret curves
-- `artifacts/replay_table_seed=20261113.jsonl`: 205 records (200 agent + 5 proposer) with token counts, success/failure hashes, model IDs
+- `paper.tex` at repository root → compiles with `pdflatex paper.tex` (run twice for references)
+- Raw data is generated, not committed (`results/` is git-ignored). Regenerate and re-check with:
+  ```sh
+  uv run python experiments/run_grid.py --seeds 50   # results/grid.csv: 8,500 rows (~30 min)
+  uv run python experiments/run_sweep.py --seeds 20  # results/sweep.csv
+  uv run python experiments/verify_claims.py         # PASS/FAIL for every quoted number
+  ```
+- `docs/07_results_report.md`: results with figures and caveats
 - `docs/04_simulator_spec.md`, `docs/06_replay_table_spec.md`: phase specifications
-- 7 confirmed related-work citations from `orx discover`/`orx paper <id>`: EvoGuard 2611.06444, RSI Tax 2611.13524, FGSE 2611.14326, StepLearn 2609.35911, AtomSearch 2610.19951, SkillBoost 2607.26643, Skill∞ 2610.35434
+- Related work: EvoGuard 2611.06444, RSI Tax 2611.13524, FGSE 2611.14326, StepLearn 2609.35911, AtomSearch 2610.19951, SkillBoost 2607.26643, Skill∞ 2610.35434 (see `docs/01_literature_survey.md`)
