@@ -13,31 +13,15 @@ import numpy as np
 from .config import Config
 from .sim import Decision, View, ObsView, headroom, mixture_probs
 
-SQ2 = math.sqrt(2.0)
 D_GRID = np.linspace(-0.8, 1.0, 181)
 
 
-def phi(x):
-    return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
+def _binom_pmf(v: np.ndarray, n: int) -> np.ndarray:
+    """Binomial pmf P(count = c | success prob v) for c = 0..n, one row per entry of v."""
+    c = np.arange(n + 1)
+    log_coef = np.array([math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1) for k in c])
+    return np.exp(np.outer(np.log(v), c) + np.outer(np.log1p(-v), n - c) + log_coef)
 
-
-def Phi(x):
-    return 0.5 * (1.0 + math.erf(x / SQ2))
-
-
-def e_pos(mu, s):
-    """E[max(X,0)] for X ~ N(mu, s^2)."""
-    if s <= 1e-12:
-        return max(mu, 0.0)
-    return mu * Phi(mu / s) + s * phi(mu / s)
-
-
-def e_pos_shift(mu, s, c):
-    """E[max(X - c, 0)] for X ~ N(mu, s^2): the expected gain that survives a margin c."""
-    if s <= 1e-12:
-        return max(mu - c, 0.0)
-    u = (mu - c) / s
-    return (mu - c) * Phi(u) + s * phi(u)
 
 
 class Policy:
@@ -214,14 +198,14 @@ class BeliefController(Policy):
     (one task rollout = 1, a failure costs c_fail):
       SKIP    0
       ACCEPT  c_fail * H * mu                       (expected gain of swapping now)
-      PROBATE c_fail * Hn * e_pos(mu, pre) + n * c_fail * mu
-      VERIFY  c_fail * H  * e_pos(mu, pre) - k * verify_price
-      JUDGE   c_fail * H  * E[gain | verdict] - judge_cost
-    `pre` is how far the posterior mean can still move once the evidence is in
-    (pre^2 = var(D) - var(D | evidence)), and e_pos is the expected gain that survives
-    the decision to act on the new belief.  PROBATE spends n of the family's tasks on the
-    candidate, so the incumbent's horizon drops by n/q_p; VERIFY buys off-task rollouts and
-    leaves the horizon intact.
+      PROBATE c_fail * Hn * G(n) + n * c_fail * mu - (opportunities blocked) * (value of one)
+      VERIFY  c_fail * H  * G(k, shifted) - k * verify_price
+      JUDGE   c_fail * H  * E[D * 1{accept after the verdict}] - judge_cost
+    G(n) = E[D * 1{accept after n new Bernoulli observations}] is computed by enumerating
+    every binomial count, recomputing the grid posterior, and applying the acceptance rule
+    (`_trial_expected_gain`).  PROBATE spends n of the family's tasks on the candidate, so
+    the incumbent's horizon drops by n/q_p; VERIFY buys off-task rollouts and leaves the
+    horizon intact.
     """
 
     PROBE_N = (3, 8, 16, 32)
@@ -298,11 +282,6 @@ class BeliefController(Policy):
         var = float((w * (D_GRID - mu) ** 2).sum())
         return w, mu, var
 
-    def _accept_gain(self, w: np.ndarray, mu: float, var_c: float, iv: float) -> float:
-        """Expected cost saving from accepting, in cost units (zero if not worth it)."""
-        s = math.sqrt(var_c + iv)
-        return self.z * 0.0 + (mu - self.z * s)
-
     def _trial_expected_gain(self, w_prior, im, n, shift=0.0):
         """Exact expected gain from buying n Bernoulli observations of the candidate.
 
@@ -314,16 +293,12 @@ class BeliefController(Policy):
         Returns E[ D * 1{accept after the evidence} ].
         """
         v = np.clip(im + D_GRID + shift, 1e-6, 1 - 1e-6)
-        counts = np.arange(n + 1)
-        logp = np.outer(np.log(v), counts) + np.outer(np.log(1 - v), n - counts)
-        LL = logp - logp.max(axis=1, keepdims=True)
-        M = w_prior[:, None] * np.exp(LL)
-        post = M / M.sum(axis=0, keepdims=True)          # posterior over D for each count
+        P = _binom_pmf(v, n)                               # P(count | D), rows sum to 1
+        joint = w_prior[:, None] * P
+        post = joint / joint.sum(axis=0, keepdims=True)    # posterior over D for each count
         mu_post = post.T @ D_GRID
         var_post = post.T @ (D_GRID ** 2) - mu_post ** 2
         accept = (mu_post - self.z * np.sqrt(np.maximum(var_post, 0.0))) > 0
-        P = np.exp(LL)
-        P /= P.sum(axis=1, keepdims=True)                 # P(count | truth), per truth
         p_accept = P @ accept.astype(float)
         return float((w_prior * D_GRID * p_accept).sum())
 

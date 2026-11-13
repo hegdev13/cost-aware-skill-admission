@@ -1,0 +1,18 @@
+{
+ "agent_model": "gemini-3.5-flash-lite",
+ "proposer_model": "gemini-3.5-flash-lite",
+ "judge_model": "gemini-3.1-flash-lite",
+ "agent_tasks_per_call": 10,
+ "temperature": 0.0,
+ "families": 5,
+ "tasks_per_family": 40,
+ "candidates_per_family": 9,
+ "agent_cells": 2000,
+ "agent_calls": 200,
+ "proposer_calls": 45,
+ "judge_calls": 450,
+ "live_calls": 209,
+ "cached_calls": 486,
+ "seconds": 373.5,
+ "built": "2026-11-14"
+}

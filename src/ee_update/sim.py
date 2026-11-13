@@ -184,11 +184,10 @@ class Simulator:
             pol.hidden = self
         pol.reset()
         for f in range(K):
-            v0 = min(max(cfg.v0_mean + cfg.v0_sd * W.v0_z[f], 0.05), 0.9)
-            s = Skill(f"f{f}-s0", f, None, v0, -1, -1, cfg.window, "incumbent")
+            s = self._make_root(f)
             self.skills[s.id] = s
             self.inc.append(s)
-            tr.log_truth(skill_id=s.id, parent_id=None, true_value=v0, parent_true_value=None, delta=None)
+            tr.log_truth(skill_id=s.id, parent_id=None, true_value=s.v, parent_true_value=None, delta=None)
         cum = np.zeros(T)
         total = 0.0
         for t in range(T):
@@ -201,7 +200,7 @@ class Simulator:
                 S, arm, rule = C, "candidate", f"probation_share(q_p={cfg.q_p})"
             else:
                 S, arm, rule = I, "incumbent", "family_incumbent"
-            succ = bool(W.u_task[t] < self.value(S, t))
+            succ = self._task_success(S, t, f)
             S.obs.append(1 if succ else 0)
             S.n += 1
             S.w += int(succ)
@@ -231,6 +230,47 @@ class Simulator:
         res["trace"] = tr
         return res
 
+    # -------------------------------------------------------------- outcome hooks
+    # The simulated world draws every outcome from the pre-drawn tables in World.  The
+    # real-LLM replay (replay.py) overrides these five methods to read recorded outcomes.
+    def _make_root(self, f: int) -> Skill:
+        cfg = self.cfg
+        v0 = min(max(cfg.v0_mean + cfg.v0_sd * self.W.v0_z[f], 0.05), 0.9)
+        return Skill(f"f{f}-s0", f, None, v0, -1, -1, cfg.window, "incumbent")
+
+    def _max_proposals(self, f: int) -> int:
+        return NMAX
+
+    def _task_success(self, S: Skill, t: int, f: int) -> bool:
+        return bool(self.W.u_task[t] < self.value(S, t))
+
+    def _make_candidate(self, f: int, kidx: int, I: Skill, t: int) -> Skill:
+        cfg = self.cfg
+        vp = self.value(I, t)
+        dl = draw_delta(cfg, vp, self.W.c_type[f, kidx], self.W.c_mag[f, kidx])
+        vc = min(vp + dl, cfg.v_max) if dl > 0 else max(vp + dl, cfg.v_floor)
+        C = Skill(f"f{f}-c{kidx}", f, I.id, vc, t, kidx, cfg.window, "candidate")
+        C.delta = vc - vp
+        C.shift = float(self.W.c_shift[f, kidx]) * cfg.shift_sd
+        return C
+
+    def _verify(self, C: Skill, f: int, t: int, k: int) -> int:
+        """Run k held-out verification rollouts of candidate C; return the successes."""
+        vc_now = min(max(self.value(C, t) + C.shift, 0.0), 1.0)
+        s_ok = 0
+        for _ in range(k):
+            idx = C.vidx % VMAX
+            s_ok += int(self.W.c_verify[f, C.k, idx] < vc_now)
+            C.vidx += 1
+        return s_ok
+
+    def _judge(self, C: Skill, I: Skill, f: int, t: int) -> bool:
+        """One pairwise judgement: True if the judge says C is better than I."""
+        vi, vcn = self.value(I, t), self.value(C, t)
+        truly_better = vcn > vi if vcn != vi else bool(self.W.c_tie[f, C.k] < 0.5)
+        jidx = (C.k + C.judge_n) % NMAX
+        return truly_better if self.W.c_judge[f, jidx] < self.cfg.judge_acc else (not truly_better)
+
     # -------------------------------------------------------------- opportunity
     def _charge(self, t, f, comp, amount, cause, skill):
         self.led[comp] += amount
@@ -248,7 +288,7 @@ class Simulator:
         while True:
             C = self.cand[f]
             if C is None:
-                if proposed or self.prop_count[f] >= NMAX:
+                if proposed or self.prop_count[f] >= self._max_proposals(f):
                     break
                 d = pol.propose(self._view(t, f))
                 chosen = d.action == "PROPOSE"
@@ -262,11 +302,8 @@ class Simulator:
                 self.prop_count[f] += 1
                 I = self.inc[f]
                 vp = self.value(I, t)
-                dl = draw_delta(cfg, vp, self.W.c_type[f, kidx], self.W.c_mag[f, kidx])
-                vc = min(vp + dl, cfg.v_max) if dl > 0 else max(vp + dl, cfg.v_floor)
-                C = Skill(f"f{f}-c{kidx}", f, I.id, vc, t, kidx, cfg.window, "candidate")
-                C.delta = vc - vp
-                C.shift = float(self.W.c_shift[f, kidx]) * cfg.shift_sd
+                C = self._make_candidate(f, kidx, I, t)
+                vc = C.v
                 self.skills[C.id] = C
                 self.cand[f] = C
                 proposed = True
@@ -322,12 +359,7 @@ class Simulator:
                 if decisions > 3:
                     break
                 C.on_probation, C.probation_target = False, None
-                vc_now = min(max(self.value(C, t) + C.shift, 0.0), 1.0)
-                s_ok = 0
-                for _ in range(d.k):
-                    idx = C.vidx % VMAX
-                    s_ok += int(self.W.c_verify[f, C.k, idx] < vc_now)
-                    C.vidx += 1
+                s_ok = self._verify(C, f, t, d.k)
                 C.vk += d.k
                 C.vs += s_ok
                 tokens = d.k * cfg.verify_price
@@ -340,11 +372,8 @@ class Simulator:
                 if decisions > 3:
                     break
                 C.on_probation, C.probation_target = False, None
-                vi, vcn = self.value(self.inc[f], t), self.value(C, t)
-                truly_better = vcn > vi if vcn != vi else bool(self.W.c_tie[f, C.k] < 0.5)
-                jidx = (C.k + C.judge_n) % NMAX
+                says_better = self._judge(C, self.inc[f], f, t)
                 C.judge_n += 1
-                says_better = truly_better if self.W.c_judge[f, jidx] < cfg.judge_acc else (not truly_better)
                 C.judge.append(bool(says_better))
                 self._charge(t, f, "judge", cfg.judge_cost, seq, C)
                 extra += cfg.judge_cost
