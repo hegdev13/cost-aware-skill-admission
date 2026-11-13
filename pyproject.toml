@@ -1,0 +1,17 @@
+[project]
+name = "ee-update"
+version = "0.1.0"
+description = "Explore/exploit in the learning-update rule of LLM agents"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "matplotlib>=3.8", "textual>=0.80", "pytest>=8.0", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ee_update"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
