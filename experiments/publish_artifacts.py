@@ -28,10 +28,12 @@ def main() -> None:
     for fig in sorted((ROOT / "figs").glob("fig*.pdf")) + sorted((ROOT / "figs").glob("fig*.svg")):
         shutil.copy2(fig, OUT / "figures" / fig.name)
     shutil.copy2(ROOT / "figs" / "orx_figstyle.py", OUT / "figures" / "orx_figstyle.py")
-    for script in ("make_figures.py", "run_grid.py", "run_sweep.py", "summarize.py"):
+    for script in ("make_figures.py", "run_grid.py", "run_sweep.py", "summarize.py",
+                   "verify_claims.py", "tune_margin.py"):
         shutil.copy2(ROOT / "experiments" / script, OUT / "figures" / script)
 
-    for name in ("grid.csv", "sweep.csv", "tables.md", "grid_meta.json", "sweep_meta.json"):
+    for name in ("grid.csv", "sweep.csv", "tuning.csv", "tables.md", "grid_meta.json",
+                 "sweep_meta.json"):
         src = ROOT / "results" / name
         if src.exists():
             shutil.copy2(src, OUT / "data" / name)
@@ -45,6 +47,10 @@ def main() -> None:
         if src.is_file():
             shutil.copy2(src, OUT / "viewer" / src.name)
 
+    for doc in ("journal.md", "setup.md", "README.md"):
+        src = ROOT / doc
+        if src.exists():
+            shutil.copy2(src, OUT / doc)
     report = ROOT / "docs" / "07_results_report.md"
     if report.exists():
         # the published copy sits next to figures/, so fix the relative links

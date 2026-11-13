@@ -138,3 +138,29 @@ Main grid: 6 regimes × 7 baselines (+ 3 controllers later) × 50 seeds. Heatmap
 1. Cost units: keep "rollout-equivalents" (recommended) or convert to dollars later?
 2. Default c_fail = 5 rollouts: is that a sensible stand-in for your intended setting?
 3. Include context variant V2 in the first implementation, or add after the main results?
+
+
+---
+
+## Amendments: what was built differs from the text above (recorded 2026-11-13)
+
+This spec was written before the build. The simulator in `src/ee_update/` follows it except for the
+points below. Where the spec and the code disagree, **the code and `journal.md` are authoritative**.
+
+| Spec said | As built | Why |
+|---|---|---|
+| Controllers use a Gaussian belief (section 9) | A grid posterior over D = v_cand - v_inc (181 points, -0.8 to 1.0), with exact enumeration of future outcomes for the value of information | Gaussian value-of-information was too crude for a mixture prior with a point mass at "tie" |
+| Actions: skip / accept / probate / verify, plus a judge used only by a baseline | The controller also has a JUDGE channel (one cheap pairwise comparison) | The judge turned out to be the most valuable channel (removing it costs 563 regret units in the base regime) |
+| Judge cost 0.02 rollouts | 0.1 rollouts (G: 1.0, J: 100.0) | A pairwise LLM comparison is not free; regimes G, H, J test dear, noisy and absent judges |
+| Regimes A-F | Ten regimes: base, A-F plus G (dear judge), H (noisy judge), J (no judge) | See above |
+| Verification regimes set by probe count k (A: 5, B: 40) | Set by probe **price** (A: 0.2, B: 2.0 per probe); baselines use fixed k (probe gate 20, always-verify 100) | Price is the quantity that actually varies between deployments |
+| Opportunity every task | An update opportunity every 5th task of a family (`opp_every = 5`) | Otherwise every policy pays a proposal cost per task, which dominates all comparisons |
+| One candidate in flight per family, up to `C_max = 2` | Exactly one candidate in flight per family | Simplicity; a live trial then blocks proposing, which the controller prices as "opportunity cost" |
+| Initial skill value from Beta | Normal(0.5, 0.15), clipped to [0.05, 0.9] | Lets the random draws sit in one pre-drawn table per seed |
+| (not in spec) | Improvements shrink near a ceiling (`v_max = 0.95`, `diminishing = True`) | Without diminishing returns every policy converges to the ceiling and late proposals have no value to gate |
+| Probation routes a fixed share of tasks until the policy changes its mind | The policy can fix the number of trial observations (`probation_target`); routing stops once reached | Lets the controller price a trial of a specific size |
+| Policy chooses PROPOSE/HOLD, then the candidate action | Same; a candidate can be judged or verified up to 3 times within one opportunity before the loop moves on | Needed so the controller can re-decide after buying information |
+| Verification regimes could hide the generalisation gap | `shift_sd` (regime E) is a per-candidate offset that applies to verification probes only | Models "held-out tasks differ from live tasks" |
+
+Everything else (calibration table in section 2.2, cost model in section 4, common random numbers, the
+oracle and reference cost in section 6, the policy interface in section 7) is as specified.

@@ -157,11 +157,17 @@ Figure 6 averages the regret over all ten regimes; the numbers below are the bas
 Two of these deserve emphasis because they are counter-intuitive:
 
 **A conservative acceptance rule is worse than a risk-neutral one.** The rewrite effect sizes
-in this stream are about 0.06 in success probability, while the prior's own uncertainty about
-a candidate's delta is about 0.09. A one-sigma margin therefore rejects almost everything: the
-controller accepts 0 candidates and behaves like "never update". This is a real warning for
-the design of any calibrated admission gate - the margin must be smaller than the effect it
-is meant to protect against, and in this population there is no room for one.
+in this stream are small (a typical rewrite moves success probability by about 0.06), while the
+spread of the controller's belief about a candidate's advantage is larger than any posterior
+mean it reaches. Measured on the seed-3 trace of the full controller (280 decisions): the
+posterior mean advantage has median 0.009 and 99th percentile 0.034, the candidate-only
+posterior sd has median 0.08, and the sd the margin is applied to (which also includes
+uncertainty about the incumbent's own value, median 0.15) has median 0.16. A one-sigma margin
+therefore rejects almost everything: the controller accepts 0 candidates and behaves like
+"never update". (An earlier draft said the prior's uncertainty is "about 0.09"; the margin is
+actually applied to the wider sd above, and the conclusion holds a fortiori.) This is a real
+warning for the design of any calibrated admission gate - the margin must be smaller than the
+effect it is meant to protect against, and in this population there is no room for one.
 
 **The regime that defeats the controller is not a decision failure but a prior failure.**
 With a weak proposer, the right action is to stop updating entirely, and the controller
