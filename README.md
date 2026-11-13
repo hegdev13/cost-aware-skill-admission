@@ -8,7 +8,7 @@ proposal and judgement costs tokens. This project builds a rule that keeps an ex
 belief about each candidate and prices every action, including buying information, and then
 measures where that rule wins and where it loses.
 
-Status: the simulator stage is **complete and verified** (30 tests, 41 claims checked against
+Status: the simulator stage is **complete and verified** (31 tests, 41 claims checked against
 the raw data). The real-LLM replay stage is specified but not built. Everything runs on a
 laptop CPU; no GPU, no API key, no network needed.
 
@@ -67,23 +67,24 @@ Base regime (6 task families x 1,000 tasks, 50 seeds, cost in rollout-equivalent
 | greedy pairwise judge (EvoGuard-style) | 752 | 3,075 | 371 | 198 | 0 | 20 | 0.629 | 34 |
 | probe gate with LCB (FGSE-style) | 5,070 | 7,392 | 448 | 198 | 3,955 | 0 | 0.552 | 2 |
 | always verify (AtomSearch-style cost) | 20,417 | 22,740 | 353 | 198 | 19,776 | 0 | 0.647 | 20 |
-| **ours** | **623** | **2,946** | 358 | 115 | 21 | 21 | 0.642 | 20 |
+| **ours** | **610** | **2,932** | 358 | 116 | 7 | 21 | 0.642 | 20 |
 | free-information oracle | 0 | 2,323 | 236 | 141 | 0 | 0 | 0.764 | 0 |
 
-- Against the strongest fixed rule (the greedy judge): **-129 [-166, -91]** regret units,
-  better on **86% of seeds**. Same skill quality, 14 fewer harmful commits, 83 fewer
+- Against the strongest fixed rule (the greedy judge): **-142 [-179, -105]** regret units,
+  better on **86% of seeds**. Same skill quality, 14 fewer harmful commits, 82 fewer
   proposals, 13 fewer failures.
-- Across ten named cost regimes: **8 better, 1 tied, 1 worse** than the greedy judge. The
-  one loss is the regime where a failed task costs 20 rollout-equivalents.
-- In a price x proposer-quality sweep (20 cells): the controller wins **13 of 20**, median
-  margin -102 units.
+- Across ten named cost regimes: **8 better, 2 tied, 0 worse** than the greedy judge; against
+  the best fixed rule *of each regime*, 6 better, 4 tied, 0 worse. The closest call is the
+  regime where a failed task costs 20 rollout-equivalents (+115 [-121, +351], a tie).
+- In a price x proposer-quality sweep (20 cells): the controller wins **14 of 20**, median
+  margin -112 units.
 - The two fixed-probe rules reach the *best* skill quality of all and pay 20,000
   rollout-equivalents for it - the RSI Tax result reproduced inside a controlled stream.
-- The controller lands 27% above the free-information oracle's cost, which is the price of
+- The controller lands 26% above the free-information oracle's cost, which is the price of
   not knowing the true values.
-- What each ingredient is worth (base regime): the judge channel 563 units, buying any
-  information 554, the trial 77, the propose gate 71, verification 48. A 1-sigma
-  acceptance margin *costs* 892 units: the rewrite effect sizes are smaller than the
+- What each ingredient is worth (base regime): buying any information 567 units, the judge
+  channel 537, the trial 73, the propose gate 67, verification 61. A 1-sigma
+  acceptance margin *costs* 676 units: the rewrite effect sizes are smaller than the
   uncertainty they are applied to, so a conservative gate accepts nothing.
 
 Two things we did not expect, both recorded in the journal: a live trial is dearer than it
@@ -91,7 +92,7 @@ looks (it blocks future proposals, which the model found and the ablation confir
 risk-averse acceptance rule is worse than a risk-neutral one in this population.
 
 Where it fails, and why it matters: with a **weak proposer** the controller loses to "never
-update" (965 vs 574) because its prior about the population of rewrites is fixed at the
+update" (962 vs 574) because its prior about the population of rewrites is fixed at the
 published calibration. That is a *learning* failure, not a decision failure, and the fix -
 estimate the proposer's quality online from candidates already tried - is the next step.
 
@@ -115,7 +116,7 @@ neighbours were only skimmed and are marked `[abstract]` there):
 ```sh
 git clone https://github.com/hegdev13/cost-aware-skill-admission.git && cd cost-aware-skill-admission
 uv sync
-uv run pytest -q                                   # 30 tests, about 10 s
+uv run pytest -q                                   # 31 tests, about 10 s
 uv run python experiments/build_viewer.py          # build the offline HTML viewer
 open results/viewer/viewer.html                    # the interactive trace
 ```
@@ -159,7 +160,7 @@ the log schema, what was run, what was found, and what is left - is in
 | `src/ee_update/trace.py` | the append-only decision log |
 | `src/ee_update/tui.py` | the terminal viewer |
 | `experiments/` | grid, sweep, summaries, figures, viewer builder, claim verifier, artifact publisher |
-| `tests/` | 30 tests: simulator invariants, calibration, accounting, trace contract, viewers |
+| `tests/` | 31 tests: simulator invariants, calibration, accounting, trace contract, viewers |
 | `figs/` | the six publication figures (PDF and SVG) |
 | `results/` | generated CSVs, traces and the HTML viewer (git-ignored; rebuild with the scripts above) |
 

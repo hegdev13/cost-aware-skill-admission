@@ -76,8 +76,8 @@ This is a claim about the literature I could read, not a proof that no one has d
 | D12 | Controller belief is a **grid posterior** over D = v_cand - v_inc with a mixture prior, not a Gaussian | The prior has a point mass at "tie" and exponential tails; a Gaussian misprices information | `policies.py` (`D_GRID`, `_prior_log`); amendments in docs/04 |
 | D13 | Value of information is **exact**: for a plan that buys n observations, every possible count is enumerated, the posterior recomputed, and the realised gain counted only if the candidate would then be accepted | No Gaussian shortcut in the one place it matters | `_trial_expected_gain`, `_judge_expected_gain` |
 | D14 | A live trial is charged an **opportunity cost** | A trial holds the family's only candidate slot, so each task it consumes is an update opportunity in which no new candidate could be requested; without this the controller over-bought trials (ablation `c3_probe_only` isolates the effect) | `_scores`, `v_opp` |
-| D15 | Add a **judge channel** to the controller | Removing it costs 563 regret units in the base regime (1,186 vs 623), the largest effect of any channel | grid.csv; docs/07 section 4 |
-| D16 | Gate on **proposing**: ask the proposer only when the best action on a fresh candidate is worth more than the proposal | Removing the gate costs 71 units in the base regime (694 vs 623) | `propose()`; policy `c3_voi_propose` vs `c1_voi` |
+| D15 | Add a **judge channel** to the controller | Removing it costs 537 regret units in the base regime (1,147 vs 610), the largest effect of any single channel | grid.csv; docs/07 section 4 |
+| D16 | Gate on **proposing**: ask the proposer only when the best action on a fresh candidate is worth more than the proposal | Removing the gate costs 67 units in the base regime (677 vs 610) | `propose()`; policy `c3_voi_propose` vs `c1_voi` |
 | D17 | The controller's prior comes from the default `Config()`, not the run's true config | So regimes that change the proposer (D) or the verification gap (E) test **misspecification** instead of handing the controller the answer | `BeliefController.__init__` (`self.A = Config()`) |
 | D18 | Controller is **risk-neutral** (acceptance margin z = 0); risk-averse variants exist only as ablations | A 1-sigma or 2-sigma margin makes it accept nothing (docs/07 section 4; verification log below) | `c1_conservative`, `c1_risk_averse` |
 | D19 | One append-only log per run; HTML and terminal viewers render only that log | So what is shown is exactly what the system did | `trace.py`, docs/05 |
@@ -184,15 +184,15 @@ the HTML and terminal viewers agree on counts; and a real-browser smoke test (se
 
 **Reading one decision record.** Take candidate `f5-c9` at task 304 in the base-regime trace of seed 3
 (file `results/viewer/c3_voi_propose.trace.jsonl`). Its belief says the candidate looks slightly worse
-(`mu_D = -0.016`, `P(better) = 0.31`), the scores are skip 0.0, accept -9.2, **judge +2.3**, probation -23.6,
-verification -2.6, so the controller pays 0.1 for a judgement. The greedy action would have been
+(`mu_D = -0.016`, `P(better) = 0.31`), the scores are skip 0.0, accept -9.2, **judge +2.3**, probation -24.7,
+verification -5.0, so the controller pays 0.1 for a judgement. The greedy action would have been
 SKIP, so the card shows "this decision buys information". (One viewer quirk is described in section 9.)
 
 ## 8. Experiments that were run
 
 | Experiment | What | Size | Output | Cost |
 |---|---|---|---|---|
-| Unit and contract tests | simulator invariants, calibration, accounting, trace contract, viewers | 30 tests | pytest | about 10 s |
+| Unit and contract tests | simulator invariants, calibration, accounting, trace contract, viewers | 31 tests | pytest | about 10 s |
 | **Grid** (`experiments/run_grid.py`) | 10 regimes x 17 policies x 50 seeds, T = 1,000, seeds 0 to 49 | 8,500 rows | `results/grid.csv`, `results/curves.csv` | 1,800 s recorded in `grid_meta.json` |
 | **Sweep** (`experiments/run_sweep.py`) | verification price (5 values) x proposer quality (4 values) x 8 policies x 20 seeds | 160 cells | `results/sweep.csv` | 595 s recorded in `sweep_meta.json` |
 | Summaries and figures | tables T1 to T3, six figures | - | `results/tables.md`, `figs/` | seconds |
@@ -207,7 +207,7 @@ No language model was used anywhere. The real-LLM replay table is specified (doc
 What I did to check the project, and what I found. Nothing below was assumed from earlier summaries.
 
 **Reproduced exactly.**
-- Test suite: 30 pass on the working tree and on a fresh clone (`git clone`, `uv sync`, `uv run pytest -q`).
+- Test suite: 31 pass on the working tree and on a fresh clone (`git clone`, `uv sync`, `uv run pytest -q`).
 - Second pass, same day, after the documentation was written: the whole suite still passes (30), and
   `experiments/verify_claims.py` now re-derives 41 claims from the raw CSVs (headline table, paired regime
   comparison, ablation numbers, sweep claims, the quoted decision record, the recorded run metadata) and all
@@ -287,8 +287,8 @@ evidence, `setup.md` is the manual. Where they disagree, the code and the CSVs w
 ## 10. What is to be presented
 
 **One-sentence message.** A rule that prices every way of finding out whether a candidate skill is good
-spends less than the fixed rules in most cost regimes, loses in two identifiable ones, and every decision it makes
-can be read from a log.
+spends less than the fixed rules in most cost regimes, never loses to the best fixed rule of a regime (6 better,
+4 tied), fails in one identifiable corner (a weak proposer), and every decision it makes can be read from a log.
 
 **Five-minute advisor walk-through.**
 1. Open `results/viewer/viewer.html` (build it first, see [setup.md](setup.md)). Pick `c3_voi_propose`.
@@ -307,12 +307,12 @@ fig5 one candidate's decision path; fig6 ablations.
 **Say these limitations out loud.** No language model was involved; the candidate-quality model is calibrated
 to one paper's single benchmark; one scalar value per skill and one candidate at a time; the judge is a
 fixed-accuracy sign; the controller's prior is fixed and it loses to "never update" with a weak proposer;
-it is risk-neutral and loses when failures are very costly (regime C).
+it is risk-neutral and only ties when failures are very costly (regime C).
 
 ## 11. What is left
 
 1. **Learn the proposer online** so the weak-proposer corner of the regime map stops losing to "never update".
-2. **Scale risk with stakes** (regime C is the one regime where the controller is clearly worse).
+2. **Scale risk with stakes** (regime C is now a tie with the greedy judge, +115 [-121, +351]; a stake-scaled margin may turn it into a win).
 3. **Real-LLM replay** (docs/06): pilot of about 150 calls, then about 8,400 calls into a replay table, then
    every policy replayed on real outcomes. Needs `NVIDIA_API_KEY` in the shell (it was set when last checked).
 4. **Heavier-tailed candidate quality** and the held-out-regime check.

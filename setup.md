@@ -1,7 +1,7 @@
 # Setup and usage
 
 Everything here was run on a fresh clone of branch `ee-update-rule` on 2026-11-13 (macOS, Apple silicon):
-`uv sync`, the test suite (30 pass), building the viewer, and the terminal viewer's usage message.
+`uv sync`, the test suite (31 pass), building the viewer, and the terminal viewer's usage message.
 Nothing in this project needs a GPU, an API key, or a network connection, except the real-LLM stage, which is
 specified but not built (section 9).
 
@@ -34,7 +34,7 @@ uv sync --reinstall-package ee-update
 ## 3. Check that everything works
 
 ```sh
-uv run pytest -q          # expect: 30 passed, about 10 s
+uv run pytest -q          # expect: 31 passed, about 10 s
 ```
 
 The tests cover: determinism, the candidate-quality calibration against the published rewrite statistics, the cost
@@ -144,7 +144,7 @@ That path is hard-coded at the top of the script; edit it before using it elsewh
 | `src/ee_update/trace.py` | the decision log writer and reader |
 | `src/ee_update/tui.py` | the terminal viewer |
 | `experiments/` | grid, sweep, summaries, figures, viewer builder, artifact publisher |
-| `tests/` | 30 tests |
+| `tests/` | 31 tests |
 | `experiments/verify_claims.py` | re-checks every number quoted in the docs against the raw CSVs |
 | `experiments/tune_margin.py` | the acceptance-margin check over the four development regimes |
 | `docs/` | literature survey, plan, specs, results report |

@@ -55,9 +55,18 @@ same pre-drawn randomness per seed, so every comparison is paired.
 
 ## 2. Headline
 
+> **Correction (2026-11-14).** Earlier versions of this report were produced by a controller
+> whose value-of-information enumeration weighted future outcomes without the binomial
+> coefficient and rescaled the posterior per grid point, so it was not exact as claimed
+> (`policies.py`, `_trial_expected_gain`; a test now checks it against brute force). Every
+> number below is from the corrected controller. The conclusions are unchanged except one:
+> the costly-failure regime (C), previously the controller's one loss (+283 [+56, +510]
+> against the greedy judge), is now a tie (+115 [-121, +351]). Most of that loss was the bug,
+> not risk-neutrality.
+
 In the base regime (6 families x 1000 tasks, 50 seeds) the controller's cost-regret is
-**623 +/- 47** against **752 +/- 46** for the strongest fixed rule, EvoGuard's greedy judge:
-a paired difference of **-129 [-166, -91]**, with the controller better on 86% of seeds.
+**610 +/- 47** against **752 +/- 46** for the strongest fixed rule, EvoGuard's greedy judge:
+a paired difference of **-142 [-179, -105]**, with the controller better on 86% of seeds.
 
 | policy | cost-regret (base) | total cost | failures | proposals | verification | judge calls | final success | harmful commits |
 |---|---|---|---|---|---|---|---|---|
@@ -68,39 +77,39 @@ a paired difference of **-129 [-166, -91]**, with the controller better on 86% o
 | greedy pairwise judge (EvoGuard-style) | 752 | 3,075 | 371 | 198 | 0 | 20 | 0.629 | 34 |
 | probe gate with LCB (FGSE-style) | 5,070 | 7,392 | 448 | 198 | 3,955 | 0 | 0.552 | 2 |
 | always verify (AtomSearch-style cost) | 20,417 | 22,740 | 353 | 198 | 19,776 | 0 | 0.647 | 20 |
-| **ours** | **623** | **2,946** | 358 | 115 | 21 | 21 | 0.642 | 20 |
+| **ours** | **610** | **2,932** | 358 | 116 | 7 | 21 | 0.642 | 20 |
 
 The controller reaches the same skill quality as the greedy judge (0.642 vs 0.629 success)
 while making 14 fewer harmful commits, spending 82 fewer proposals, and paying 13 fewer
 failures. The two fixed-probe rules buy the *highest* skill quality of all (always-verify
-reaches 0.647) and pay for it with 20,000 rollout-equivalents of verification - 8x the
-controller's regret and 33x the greedy judge's. This is the RSI Tax result reproduced inside
+reaches 0.647) and pay for it with 20,000 rollout-equivalents of verification - 33x the
+controller's regret and 27x the greedy judge's (the controller spends 7 on verification). This is the RSI Tax result reproduced inside
 a controlled stream: verification dominates update cost when it is bought unconditionally.
 
 Across the ten named regimes the controller is significantly better than the greedy judge in
-eight, tied in one (A), and worse in one (C) (paired differences, 95% intervals). The greedy
+eight and tied in two (A and C), and worse in none (paired differences, 95% intervals). The greedy
 judge is not the strongest fixed rule in every regime, so the next paragraph repeats the
 count against the best fixed rule *in each regime*; that is the fairer headline.
 
 | regime | what changes | ours - greedy judge | ours | greedy judge |
 |---|---|---|---|---|
-| base | - | **-129 [-166, -91]** | 623 | 752 |
-| A_cheap_verify | probes cost 0.2 | +18 [-38, +74] | 770 | 752 |
-| B_costly_verify | probes cost 2.0 | **-148 [-183, -112]** | 604 | 752 |
-| C_costly_fail | a failure costs 20 | **+283 [+56, +510]** | 3,092 | 2,808 |
-| D_weak_proposer | proposer quality 0.5 | **-157 [-207, -106]** | 797 | 954 |
-| E_gen_gap | held-out shift 0.08 | **-134 [-172, -96]** | 618 | 752 |
-| F_drift | skill values random-walk | **-242 [-324, -160]** | 560 | 803 |
-| G_dear_judge | a comparison costs 1.0 | **-118 [-160, -77]** | 811 | 930 |
-| H_noisy_judge | judge accuracy 0.55 | **-132 [-185, -79]** | 1,075 | 1,207 |
-| J_no_judge | a comparison costs 100 | **-19,401 [-19,476, -19,326]** | 1,107 | 20,508 |
+| base | - | **-142 [-179, -105]** | 610 | 752 |
+| A_cheap_verify | probes cost 0.2 | -0 [-53, +53] | 752 | 752 |
+| B_costly_verify | probes cost 2.0 | **-148 [-184, -113]** | 603 | 752 |
+| C_costly_fail | a failure costs 20 | +115 [-121, +351] | 2,923 | 2,808 |
+| D_weak_proposer | proposer quality 0.5 | **-161 [-211, -111]** | 793 | 954 |
+| E_gen_gap | held-out shift 0.08 | **-143 [-180, -105]** | 609 | 752 |
+| F_drift | skill values random-walk | **-251 [-333, -169]** | 552 | 803 |
+| G_dear_judge | a comparison costs 1.0 | **-136 [-178, -95]** | 793 | 930 |
+| H_noisy_judge | judge accuracy 0.55 | **-131 [-182, -79]** | 1,076 | 1,207 |
+| J_no_judge | a comparison costs 100 | **-19,410 [-19,493, -19,326]** | 1,098 | 20,508 |
 
 **Against the best fixed rule in each regime** (corrected after verification; computed from
 `results/grid.csv`, paired bootstrap 95% intervals): the controller is better in **6** regimes
-(base, B, D, E, F, G), tied in **3** (A, H, J) and worse in **1** (C). The three regimes where
-the best fixed rule is not the greedy judge: in D it is threshold promote (ours -134
-[-218, -48]); in H and J it is the SRN-like note (ours -53 [-125, +19] and -20 [-84, +45], both
-tied). So J's headline of -19,401 is not an advantage of ours: it measures how badly a fixed
+(base, B, D, E, F, G), tied in **4** (A, C, H, J) and worse in **none**. The three regimes where
+the best fixed rule is not the greedy judge: in D it is threshold promote (ours -139
+[-223, -55]); in H and J it is the SRN-like note (ours -51 [-126, +23] and -29 [-96, +38], both
+tied). So J's headline of -19,410 is not an advantage of ours: it measures how badly a fixed
 "always ask the judge" rule fails when the judge is unaffordable, while a simple fixed rule
 (SRN-like) is already as good as the controller. An earlier version of this report said
 "seven better, one tied, one worse" (which does not sum to ten); the counts above replace it.
@@ -115,19 +124,19 @@ signal that no longer pays for itself.
 ## 3. When does a cost-aware rule pay?
 
 The sweep in figure 4a varies the price of a verification probe against the quality of the
-proposer (20 seeds per cell). The controller wins **13 of 20 cells**, with a median margin of
--102 cost units over the best fixed rule in that cell. The three columns of the map are not
+proposer (20 seeds per cell). The controller wins **14 of 20 cells**, with a median margin of
+-112 cost units over the best fixed rule in that cell. The three columns of the map are not
 symmetric:
 
 - **Good proposer (q = 1.0), any probe price**: the controller wins, and by more as probes get
-  expensive (at 2.0 per probe it is 154 units ahead). It buys the cheapest informative
+  expensive (at 2.0 per probe it is 151 units ahead; at 0.2 only 24). It buys the cheapest informative
   channel instead of the most obvious one.
-- **Very good proposer (q = 1.5) with cheap probes (0.2, 0.5)**: the greedy judge wins (by 92 and
-  24 units). When almost every candidate is good, accepting after one cheap look is hard to beat.
-  At probe prices of 1.0 and above the controller wins again.
+- **Very good proposer (q = 1.5) with the cheapest probes (0.2)**: the greedy judge wins (by 66
+  units). When almost every candidate is good, accepting after one cheap look is hard to beat.
+  At probe prices of 0.5 and above the controller wins again (by 98-116).
 - **Medium proposer (q = 0.5)**: the fixed rules fail (threshold promote loses 968), the
-  controller wins by 103-179. Here the deciding factor is *how much* to trust a rewrite.
-- **Weak proposer (q = 0.25)**: the controller loses to **never updating** (965 vs 574). Its
+  controller wins by 159-179. Here the deciding factor is *how much* to trust a rewrite.
+- **Weak proposer (q = 0.25)**: the controller loses to **never updating** (962 vs 574 at probe price 0.5). Its
   prior assumes a proposer of quality 1.0, so it keeps buying candidates that a calibrated
   agent would ignore. This is the clearest failure mode of the current rule, and it is a
   *learning* failure, not a decision failure: the fix is to estimate the proposer's quality
@@ -142,15 +151,15 @@ Figure 6 averages the regret over all ten regimes; the numbers below are the bas
 
 | variant | base regret | what it shows |
 |---|---|---|
-| ours (full) | 623 | - |
-| ours without the propose gate | 694 | the gate is worth 71 units: asking the proposer when the answer is worthless is a pure cost |
-| ours without the verification channel | 671 | paid probes add 48 units in the base regime, where a cheap judgement is already available |
-| ours without the probation channel | 700 | live trials add 77 units |
-| ours without the judge channel | 1,186 | **the cheap pairwise judgement is the most valuable channel by far** |
-| ours without any information channel | 1,177 | buying information is worth 554 units; without it the rule collapses onto a fixed rule |
-| ours with a 1-sigma acceptance margin | 1,515 | **risk aversion destroys the rule here** |
-| ours with a 2-sigma acceptance margin | 1,315 | ditto |
-| ours with a flattened prior | 1,711 | the population prior carries most of the weight |
+| ours (full) | 610 | - |
+| ours without the propose gate | 677 | the gate is worth 67 units: asking the proposer when the answer is worthless is a pure cost |
+| ours without the verification channel | 671 | paid probes add 61 units in the base regime, where a cheap judgement is already available |
+| ours without the probation channel | 683 | live trials add 73 units |
+| ours without the judge channel | 1,147 | **the cheap pairwise judgement is the most valuable single channel** (537 units) |
+| ours without any information channel | 1,177 | buying information is worth 567 units; without it the rule collapses onto a fixed rule |
+| ours with a 1-sigma acceptance margin | 1,286 | **risk aversion destroys the rule here** |
+| ours with a 2-sigma acceptance margin | 1,285 | ditto |
+| ours with a flattened prior | 1,733 | the population prior carries most of the weight |
 
 ![Ablations](../figs/fig6_ablations.svg)
 
@@ -159,7 +168,7 @@ Two of these deserve emphasis because they are counter-intuitive:
 **A conservative acceptance rule is worse than a risk-neutral one.** The rewrite effect sizes
 in this stream are small (a typical rewrite moves success probability by about 0.06), while the
 spread of the controller's belief about a candidate's advantage is larger than any posterior
-mean it reaches. Measured on the seed-3 trace of the full controller (280 decisions): the
+mean it reaches. Measured on the seed-3 trace of the full controller (282 decisions): the
 posterior mean advantage has median 0.009 and 99th percentile 0.034, the candidate-only
 posterior sd has median 0.08, and the sd the margin is applied to (which also includes
 uncertainty about the incumbent's own value, median 0.15) has median 0.16. A one-sigma margin
@@ -187,17 +196,17 @@ A decision record looks like this (candidate `f5-c9`, base regime, seed 3):
  "rule_inputs": {"mu_D": -0.0161, "s_D": 0.2642, "p_better": 0.3101,
                  "inc_mean": 0.5, "inc_sd": 0.25, "horizon": 113.9,
                  "best_probe_n": 3, "best_verify_k": 10},
- "scores": {"SKIP": 0.0, "ACCEPT": -9.19, "JUDGE": 2.25, "PROBATE": -23.60, "VERIFY": -2.63},
+ "scores": {"SKIP": 0.0, "ACCEPT": -9.19, "JUDGE": 2.25, "PROBATE": -24.71, "VERIFY": -5.01},
  "reason": "f5-c9: belief D=-0.016+/-0.264 (P(better)=0.31), 114 tasks left. Net value:
-            SKIP +0.0, ACCEPT -9.2, JUDGE +2.3, PROBATE -23.6, VERIFY -2.6 -> JUDGE
+            SKIP +0.0, ACCEPT -9.2, JUDGE +2.3, PROBATE -24.7, VERIFY -5.0 -> JUDGE
             (explore: buys information)"}
 ```
 
 Reading it: the candidate looks slightly worse than the incumbent but the belief is wide
 (sd 0.26), so the controller does not know enough to discard it. Paying 0.1 for a pairwise
-comparison is worth 2.3 units; buying 3 live trial observations is not worth it (-23.6, mostly
+comparison is worth 2.3 units; buying 3 live trial observations is not worth it (-24.7, mostly
 because the trial would block three further update opportunities), and 10 verification
-rollouts are not worth it either (-2.6). The greedy action without buying information would
+rollouts are not worth it either (-5.0). The greedy action without buying information would
 have been to skip the candidate.
 
 The record states the belief, the value of every alternative including the one not taken,
@@ -230,8 +239,8 @@ Two viewers read the same log:
   rewrites.
 - **The controller's prior is fixed.** It does not learn the proposer's quality, which is
   exactly where it loses (section 3).
-- **The controller is risk-neutral.** It loses in the costly-failure regime, where being
-  more conservative pays.
+- **The controller is risk-neutral.** In the costly-failure regime it is only tied with the
+  greedy judge (+115 [-121, +351]); a more conservative rule may pay there.
 - **The two fixed-probe baselines are one instance of their family** (20 and 100 probes, one
   confidence level each). Their parameter choices are from the source papers, not tuned.
 
@@ -242,7 +251,8 @@ Two viewers read the same log:
    corner of the regime map becomes reachable. This turns the rule from a fixed prior into
    something that actually learns, which is the point of the exercise.
 2. **Scale risk with the stakes.** Replace the fixed margin with a criterion whose width grows
-   with $c_{\text{fail}}$, or add a value-at-risk term, and re-run the costly-failure regime.
+   with $c_{\text{fail}}$, or add a value-at-risk term, and see whether the costly-failure tie
+   becomes a win.
 3. **Real-LLM replay (P3-P4).** Build the task suite and the replay table described in
    `docs/06_replay_table_spec.md` with open models on the user's NVIDIA key, replay every
    policy on the real outcomes, and show the same viewers on a real trace. The simulator

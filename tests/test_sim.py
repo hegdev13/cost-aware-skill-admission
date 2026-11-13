@@ -101,3 +101,28 @@ def test_trace_contract(tmp_path):
     # no TRUTH inside the policy-visible trace
     assert not any(e["type"] == "TRUTH" for e in ev)
     assert (tmp_path / "x.truth.jsonl").exists()
+
+
+def test_trial_value_of_information_is_exact():
+    """_trial_expected_gain must equal a brute-force enumeration with the binomial pmf."""
+    from ee_update.policies import BeliefController, D_GRID
+    from ee_update.sim import ObsView
+
+    bc = BeliefController()
+    # two-point belief: D = -0.2 or +0.2, incumbent 0.5, two new observations.
+    # Accept only after 2/2 successes, so E[D*1{accept}] = 0.5*0.2*0.7^2 - 0.5*0.2*0.3^2 = 0.04
+    w = np.zeros_like(D_GRID)
+    w[[60, 100]] = 0.5
+    assert abs(bc._trial_expected_gain(w, 0.5, 2) - 0.04) < 1e-9
+
+    # a realistic posterior, against a brute-force loop
+    w, _, _ = bc._belief(ObsView("c", 5, 3, 0, 0, (True,), 0, False), 0.55)
+    for n, shift in [(3, 0.0), (16, 0.0), (20, 0.03)]:
+        v = np.clip(0.55 + D_GRID + shift, 1e-6, 1 - 1e-6)
+        want = 0.0
+        for c in range(n + 1):
+            pc = math.comb(n, c) * v ** c * (1 - v) ** (n - c)
+            post = w * pc
+            if (post / post.sum()) @ D_GRID > 0:
+                want += float((w * D_GRID * pc).sum())
+        assert abs(bc._trial_expected_gain(w, 0.55, n, shift) - want) < 1e-9

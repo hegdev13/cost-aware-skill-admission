@@ -75,7 +75,7 @@ def main() -> None:
         "greedy_judge": (752, 3075, 371, 198, 0, 20, 0.629, 34),
         "probe_gate": (5070, 7392, 448, 198, 3955, 0, 0.552, 2),
         "always_verify": (20417, 22740, 353, 198, 19776, 0, 0.647, 20),
-        "c3_voi_propose": (623, 2946, 358, 115, 21, 21, 0.642, 20),
+        "c3_voi_propose": (610, 2932, 358, 116, 7, 21, 0.642, 20),
     }
     keys = ["regret", "total_cost", "failures", "proposals", "verify_cost", "judge_cost",
             "success_rate", "harmful_accepts"]
@@ -88,8 +88,8 @@ def main() -> None:
     # ---- paired comparison against the greedy judge, per regime
     expect_better = {"base", "B_costly_verify", "D_weak_proposer", "E_gen_gap", "F_drift",
                      "G_dear_judge", "H_noisy_judge", "J_no_judge"}
-    expect_worse = {"C_costly_fail"}
-    expect_tie = {"A_cheap_verify"}
+    expect_worse: set = set()
+    expect_tie = {"A_cheap_verify", "C_costly_fail"}
     n_better = n_worse = n_tie = 0
     for rg in regimes:
         a = d[(rg, "c3_voi_propose")]["regret"]
@@ -107,22 +107,32 @@ def main() -> None:
             ok = diff - ci < 0 < diff + ci
             n_tie += ok
             check(f"ours ties greedy judge in {rg}", ok, f"{diff:+.0f} [{diff - ci:+.0f}, {diff + ci:+.0f}]")
-    check("regime counts 8 better / 1 tie / 1 worse", (n_better, n_tie, n_worse) == (8, 1, 1),
+    check("regime counts 8 better / 2 tied / 0 worse", (n_better, n_tie, n_worse) == (8, 2, 0),
           f"{n_better}/{n_tie}/{n_worse}")
+
+    # ---- against the best fixed rule of each regime: 6 better / 4 tied / 0 worse
+    fixed_rules = ["static", "accept_all", "srn_like", "threshold_promote", "greedy_judge", "probe_gate",
+                   "always_verify"]
+    counts = [0, 0, 0]
+    for rg in regimes:
+        best = min(fixed_rules, key=lambda p: m(rg, p, "regret"))
+        diff, ci, _ = paired(d[(rg, "c3_voi_propose")]["regret"], d[(rg, best)]["regret"])
+        counts[0 if diff + ci < 0 else 2 if diff - ci > 0 else 1] += 1
+    check("vs the best fixed rule per regime: 6 better / 4 tied / 0 worse", counts == [6, 4, 0], str(counts))
 
     # ---- headline base-regime number quoted in the report
     a = d[("base", "c3_voi_propose")]["regret"]
     b = d[("base", "greedy_judge")]["regret"]
     diff, ci, frac = paired(a, b)
-    check("base paired difference is -129 [-166, -91]",
-          abs(diff + 129) < 1 and abs((diff - ci) + 166) < 2 and abs((diff + ci) + 91) < 2,
+    check("base paired difference is -142 [-179, -105]",
+          abs(diff + 142) < 1 and abs((diff - ci) + 179) < 2 and abs((diff + ci) + 105) < 2,
           f"{diff:+.1f} [{diff - ci:+.1f}, {diff + ci:+.1f}]")
     check("ours better on 86% of base seeds", abs(frac - 0.86) < 0.02, f"{frac:.0%}")
 
     # ---- ablation numbers quoted in docs/07 section 4
-    abl = {"c1_voi": 694, "c3_probe_only": 671, "c3_verify_only": 700, "c3_no_judge": 1186,
-           "c3_greedy_mean": 1177, "c1_conservative": 1515, "c1_risk_averse": 1315,
-           "c1_flat_prior": 1711}
+    abl = {"c1_voi": 677, "c3_probe_only": 671, "c3_verify_only": 683, "c3_no_judge": 1147,
+           "c3_greedy_mean": 1177, "c1_conservative": 1286, "c1_risk_averse": 1285,
+           "c1_flat_prior": 1733}
     for pol, want in abl.items():
         got = m("base", pol, "regret")
         check(f"ablation {pol} base regret", abs(got - want) <= max(2.0, want * 0.01),
@@ -143,11 +153,11 @@ def main() -> None:
         wins += int(mrg < 0)
     margins.sort()
     median = margins[len(margins) // 2]
-    check("sweep: controller wins 13 of 20 cells", wins == 13, f"{wins}/{len(cells)}")
-    check("sweep: median margin -102", abs(median + 102) < 2, f"{median:+.0f}")
+    check("sweep: controller wins 14 of 20 cells", wins == 14, f"{wins}/{len(cells)}")
+    check("sweep: median margin -112", abs(median + 112) < 2, f"{median:+.0f}")
     weak = cells[(0.5, 0.25)]
-    check("sweep: weak proposer loses to never updating (965 vs 574)",
-          abs(weak["c3_voi_propose"] - 965) < 12 and abs(weak["static"] - 574) < 12,
+    check("sweep: weak proposer loses to never updating (962 vs 574)",
+          abs(weak["c3_voi_propose"] - 962) < 12 and abs(weak["static"] - 574) < 12,
           f"{weak['c3_voi_propose']:.0f} vs {weak['static']:.0f}")
 
     # ---- the decision record quoted in docs/07 and journal.md
@@ -158,7 +168,8 @@ def main() -> None:
         quoted = [e for e in rec if abs(e["rule_inputs"]["mu_D"] + 0.0161) < 1e-3]
         ok = bool(quoted) and quoted[0]["t"] == 304 and quoted[0]["action"] == "JUDGE" \
             and abs(quoted[0]["scores"]["JUDGE"] - 2.25) < 0.05 \
-            and abs(quoted[0]["scores"]["PROBATE"] + 23.6) < 0.1
+            and abs(quoted[0]["scores"]["PROBATE"] + 24.7) < 0.1 \
+            and abs(quoted[0]["scores"]["VERIFY"] + 5.0) < 0.1
         check("quoted decision record for f5-c9 at t=304", ok,
               f"{len(rec)} decisions for f5-c9; the quoted one is seq {quoted[0]['seq'] if quoted else '-'}")
         check("the trace was built by the current controller (opportunity cost present)",
