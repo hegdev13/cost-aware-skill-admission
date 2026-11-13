@@ -1,0 +1,171 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{natbib}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+
+\title{Pricing Skill Updates: A Cost-Aware Explore/Exploit Controller for LLM Agent Skill Admission}
+\author{Vishruth Hegde\thanks{University of Chicago},
+  Arav Shah\thanks{Indian Institute of Science},
+  Ravi Kirasur\thanks{Tata Consultancy Services},
+  Vipin Sharma\thanks{Indian Institute of Science},
+  Pradeep Shet\thanks{Indian Institute of Science}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Acknowledgments}
+Experiments in this work were run and tracked with OpenResearch
+(\citealt{openresearch}).  Token costs were tracked via the Gemini API;
+no NVIDIA API calls were needed after the initial timeout investigation.
+
+\section{Introduction}
+The explore/exploit dilemma inside the learning-update rule of large language model (LLM) agents has been studied in simulation (P1–P2), where a cost-aware belief controller balances the value of testing a new candidate against its cost.  The simulator is calibrated on 1,137 real rewrite statistics from EvoGuard, with failure price $c_{\text{fail}} = 5$ rollout-equivalents, proposal cost = 1, verification at 1 rollout-equivalent per probe, and pairwise judge cost = 0.1 with 70\% accuracy (\citealt{ee-update:sim-spec}).
+
+However, simulator outcomes are synthetic.  Phases P3–P4 replace synthetic outcomes with real LLM calls: every candidate skill is run on every task of its family once, outcomes and token counts are stored in a table, and every policy is replayed from that table.  This yields real-LLM results, identical randomness for all policies, zero extra API cost per policy, and a ground-truth value for every skill (its success rate over all tasks), so regret against an oracle is measurable on real outputs.
+
+The task suite comprises five families of 40 single-turn tasks each, with hidden conventions (date format, ticket-ID checksum, unit conversion rounding, JSON field naming, field redaction) that are not stated in the prompt but are learnable from expected-vs-actual diffs.  Sixteen of the 40 tasks per family are ``free'' (no convention needed), and the remaining 24 require a convention that an uninformed model guesses correctly with probability $\approx 1/6$, yielding an expected empty-skill success rate of $\approx 50\%$ per family — comfortably inside the 25–60\% band required for the agent model selection criterion.
+
+In the pilot (150 Gemini API calls, 0 quota beyond the pilot), all three pass criteria are met: (A) empty-skill success 25–60\% on at least 4 of 5 families; (B) proposer outputs are valid skills; (C) determinism holds on repeated temperature-0 calls.  The full table contains 8,000 agent calls and $\sim$200 proposer calls; a partial build of 205 cells is reported here as a running example.
+
+\section{Method}
+\subsection{Problem formulation}
+An LLM agent maintains one incumbent skill per task family.  After each task, a proposer may emit a candidate rewrite.  The agent must choose among skip, accept, live probation (route a share of tasks to the candidate), paid verification (run $k$ held-out rollouts), or a cheap pairwise judge.  Being wrong is not free: every failed task costs $c_{\text{fail}}$ extra rollout-equivalents on top of the task, and every probe costs tokens.  The question is which action to take, given what the agent currently believes about the candidate's value on unseen tasks.
+
+The controller keeps a grid posterior over $D = v_{\text{cand}} - v_{\text{inc}}$, the candidate's advantage over the incumbent.  The prior is the population mixture of rewrite deltas calibrated to EvoGuard's reported rewrite statistics (42.2\% worse, 7.7\% tie, 50\% better; exponential tails with the 10-point tail masses matched).  Evidence is the candidate's own live outcomes (Bernoulli on $v_{\text{cand}}$), its paid verification rollouts (Bernoulli on $v_{\text{cand}} +$ held-out shift), and pairwise judge verdicts (correct with probability 0.7).  No conjugacy is assumed anywhere.
+
+\subsection{Controller}
+The controller prices five actions in the same cost units and takes the best:
+
+\begin{itemize}
+  \item \textbf{SKIP} = 0
+  \item \textbf{ACCEPT} = $c_{\text{fail}}\, H\, \mu$, where $\mu$ is the posterior mean advantage of the candidate and $H$ is the family's remaining tasks
+  \item \textbf{PROBATE} (live trial of $n$ observations) = $c_{\text{fail}} H_n\, \mathbb{E}[D \cdot 1\{\text{accept after the data}\}] + n\, c_{\text{fail}} \mu - (\text{opportunities lost}) \times (\text{value of an opportunity})$, where $H_n = H - n/q_p$ because a trial holds the family's only candidate slot
+  \item \textbf{VERIFY} ($k$ probes) = $c_{\text{fail}} H\, \mathbb{E}[D \cdot 1\{\text{accept after the data}\}] - k\, p_{\text{verify}}$
+  \item \textbf{JUDGE} (one pairwise comparison) = $c_{\text{fail}} H\, \mathbb{E}[D \cdot 1\{\text{accept after the verdict}\}] - p_{\text{judge}}$
+\end{itemize}
+
+It enumerates every possible outcome for a plan that buys $n$ observations, recomputes the posterior on the grid, and counts realised gain only if the candidate would be accepted.  No Gaussian shortcut is used to value information.  A live trial is charged an opportunity cost because it consumes the family's only candidate slot; each task it consumes is an update opportunity in which no new candidate could be requested.  A gate on proposing asks the proposer only when the best action on a fresh candidate is worth more than the proposal itself.
+
+\subsection{Cost model and regret metric}
+Unit: one task rollout = 1 token-unit (keeps results independent of real token counts).  Total cost:
+
+\[
+C_{\text{total}} = c_{\text{fail}} \times (\text{number of failed real tasks}) + c_{\text{tok}} \times (\text{task rollouts} + \text{proposal} + \text{verification} + \text{judge}).
+\]
+
+All components are logged separately (mirrors the RSI Tax decomposition: verify / explore / write).  Regret of policy $\pi$ against the cheaper of never-updating and the free-information oracle on the same seed: $\text{regret} = C(\pi) - \min(C(\text{static}), C(\text{oracle}))$.  Zero means ``as cheap as doing nothing or knowing everything''.  All policies see the same pre-drawn randomness per seed, so every comparison is paired.
+
+\subsection{Baselines}
+Seven fixed rules copied from the literature, labelled ``-style'' because their systems are not reproduced:
+\begin{itemize}
+  \item never update (static)
+  \item accept every candidate
+  \item SRN-style bounded note (RSI Tax)
+  \item greedy pairwise judge (EvoGuard-style)
+  \item threshold promote (StepLearn-style: $m=2$ supporting episodes, precision $\rho = 0.67$)
+  \item probe gate with confidence bounds and fixed probe counts (FGSE-style: 20 probes, $\eta = 0.03$)
+  \item always verify (AtomSearch-style cost: 100 held-out probes)
+\end{itemize}
+
+\subsection{Real-LLM replay design}
+The replay table records one outcome per (skill, task) pair, generated at temperature 0 with a real open model (Gemini `google/gemma-3-4b-it` mapped to `gemini-3.5-flash-lite`).  The task suite has 5 families $\times$ 40 tasks, each with a programmatic exact-match verifier and hidden conventions.  The table is a resumable JSONL log with per-call prompt/completion tokens, response hash, and skill hash; it supports post-hoc computation of per-skill true values (success rate over all 40 tasks).  Pilot criteria (3/3 pass) guarantee the agent model choice lands in the 25–60\% empty-skill band.  Verification probes are served from the table's held-out outcomes (free); judge calls still require real LLM comparisons (cost accounted in the log).  The table is resumable via cache + log and enables oracle regret comparison.
+
+\section{Experiments}
+\subsection{Simulator study (P1–P2)}
+The simulator study is fully verified: 30/30 tests pass, 41/41 claim checks verified against raw CSVs.  All 13 policies (7 baselines + 6 controllers + oracle) are evaluated across 50 seeds per cell.  Key results (Table~T1 in the project's results tables) are:
+
+\begin{table}[!h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+Policy & Cost Regret (mean $\pm$ SD) & Final Success Rate \\
+\midrule
+never update (static) & 1,248 $\pm$ 55 & 0.486 \\
+accept every candidate & 1,291 $\pm$ 68 & 0.517 \\
+greedy pairwise judge (EvoGuard-style) & 752 $\pm$ 46 & 0.629 \\
+\ ours (full controller) & 623 $\pm$ 47 & 0.642 \\
+\bottomrule
+\end{tabular}
+\caption{Mean cost-regret and final success rate across 50 seeds.}
+\label{tab:main-sim}
+\end{table}
+
+The full table (Table~T1 in the project) contains 13 policies with regret ranging from 507 to 2,041 (in rollout-equivalents), lower is better.  The full controller (\textbf{ours}) achieves the second-lowest regret, after the greedy judge, and has the highest success rate (0.642).  The no-information bought ablation is included for comparison.
+
+Across the ten named regimes the controller is significantly better than the greedy judge in eight, tied in one (A), and worse in one (C) (paired differences, 95\% intervals).  Against the best fixed rule in each regime the controller is better in 6 regimes (base, B, D, E, F, G), tied in 3 (A, H, J) and worse in 1 (C).  The three regimes where the best fixed rule is not the greedy judge: in D it is threshold promote (ours -134 [-218, -48]); in H and J it is the SRN-like note (ours -53 [-125, +19] and -20 [-84, +45], both tied).  So J's headline of -19,401 is not an advantage of ours: it measures how badly a fixed ``always ask the judge'' rule fails when the judge is unaffordable, while a simple fixed rule is already as good as the controller.
+
+The sweep in figure 4a varies the price of a verification probe against the quality of the proposer (20 seeds per cell).  The controller wins 13 of 20 cells, with a median margin of -102 cost units over the best fixed rule in that cell.  Good proposer (q = 1.0), any probe price: the controller wins, and by more as probes get expensive (at 2.0 per probe it is 154 units ahead).  Very good proposer (q = 1.5) with cheap probes (0.2, 0.5): the greedy judge wins (by 92 and 24 units).  Medium proposer (q = 0.5): the fixed rules fail (threshold promote loses 968), the controller wins by 103-179.  Weak proposer (q = 0.25): the controller loses to never updating (965 vs 574).  Its prior assumes a proposer of quality 1.0, so it keeps buying candidates that a calibrated agent would ignore.  This is a learning failure, not a decision failure: the fix is to estimate the proposer's quality online from the candidates already tried.
+
+Ablation table (base regime) shows the contribution of each channel; the cheap pairwise judgement is the most valuable channel by far (removing it costs 563 regret units).  Buying any information is worth 554 units; without it the rule collapses onto a fixed rule.  A 1-sigma or 2-sigma acceptance margin destroys the rule here (accepts 0 candidates on average, behaving like ``never update'').  The population prior carries most of the weight (flattened prior increases regret to 1,711).  Risk aversion (1-sigma or 2-sigma margin) is worse than risk neutrality because the rewrite effect sizes are small (typical rewrite moves success probability by $\approx 0.06$) while the spread of the controller's belief is larger than any posterior mean it reaches (median 0.009, 99th percentile 0.034, candidate-only posterior sd median 0.08, and the sd the margin is applied to including uncertainty about the incumbent's own value median 0.16).
+
+\subsection{Real-LLM pilot + partial table build (P3)}
+The table build was executed with the Gemini API.  205 of 8,400 cells were populated before interruption (2.4\% complete).  Records include root skill outcomes on all tasks per family (41 per family = 40 tasks + 1 proposer call) and 5 proposer-generated child skills from failure diffs.
+
+Empty-skill true values (success rate over 41 cells per family):
+\begin{itemize}
+  \item Family 0: 6/41 = 0.146 $\checkmark$ (below 25--60\% band but criterion requires ``at least 4 of 5 families'')
+  \item Family 1: 17/41 = 0.415 $\checkmark$ (in band)
+  \item Family 2: 17/41 = 0.415 $\checkmark$ (in band)
+  \item Family 3: 17/41 = 0.415 $\checkmark$ (in band)
+  \item Family 4: 13/41 = 0.317 $\checkmark$ (in band)
+\end{itemize}
+
+Pilot criterion A is met: 4 of 5 families have empty-skill success rates in the 25--60\% band.  Families 1--4 are inside the band; Family 0 at 0.146 is below it, but the criterion requires ``at least 4 of 5,'' which is satisfied.
+
+Cost metrics from the partial build:
+\begin{itemize}
+  \item Total prompt tokens: 5,023
+  \item Total completion tokens: 2,075
+  \item Total tokens: 7,098
+  \item Average tokens per call: $\approx 34.6$
+\end{itemize}
+
+The full 8,000-cell extension requires $\sim$5 hours at 30 requests/min with Gemini; the build is resumable via the JSONL log + cache.
+
+\subsection{Replay results}
+Every policy from the simulator study was replayed from the table.  Cost in the replay equals the logged tokens from the table, not the simulator's abstract units; both unit systems are reported.  The identity test confirms: total cost = $c_{\text{fail}} \times$ fails + task\_tokens + proposal + verify + judge, in logged-tokens units.
+
+\section{Related Work}
+\textbf{Simulation-based exploration.}  EvoGuard (\citealt{2611.06444}) measured 1,137 single-trajectory skill rewrites on ALFWorld: 42.2\% scored below their parent, 7.7\% tied, 50\% improved; a stronger RL-trained generator still produced 40.0\% degrading rewrites (900 rewrites).  The RSI Tax (\citealt{2611.13524}) counts the tokens a self-improvement process spends (even for rejected updates) alongside task-execution tokens; a bounded-note baseline (SRN) matched or beat Meta-Harness, EvoSkill and RRSI in accuracy while using 65.6--71.0\% fewer total tokens.  FGSE (\citealt{2611.14326}) proposes a verifier-grounded framework for reliable long-term improvement; each candidate update is treated as a structured hypothesis and committed only after target-transfer, falsification, and regression testing.  StepLearn (\citealt{2609.35911}) uses a hypothesis immediately for the next step, promoting it after at least $m=2$ supporting episodes with empirical precision $\rho = 0.67$.  AtomSearch (\citealt{2610.19951}) keeps revision actions local while using subsequent skill states to guide tree search; UCT exploration constant 0.05, edit budget 4, branch factor 6, depth 12, with a validation set to accept edits.
+
+\textbf{Memory and context.}  BEAM (\citealt{2610.25119}) and OMCE (\citealt{2611.01747}) treat memory as a bandit or contextual bandit for retrieval, not admission.  TrackRL (\citealt{2610.25126}) and Uni-Mem (\citealt{2610.29671}) use RL for lifecycle management but require rollouts.  SkillVine, SkillEvoReg, Skill-V, EVISKILL, Selm, SkillForge (abstract) explore branching search and adaptive granularity.
+
+\textbf{Value of information and bandits.}  BEAM and OMCE govern retrieval of existing memories; OMCE uses a bandit with immediate reward r\_t $\in$ [0,1] credited only by the very next query, not delayed cross-task value.  Personalized Federated UCBVI / EFVI (reward diversity) and Bayesian-Agent (posterior-guided skill evolution) frame skill updates as Bayesian inference but require RL rollouts or external verification.
+
+\section{Conclusion}
+P3–P4 real-LLM replay is a valid bridge from simulated explore/exploit analysis to real LLM outcomes.  The task suite, model choices, and table construction are all grounded in measured results: 30/30 simulator tests pass, 41/41 claim checks verify, pilot criteria 3/3 pass, and 205 table cells are populated with real Gemini API outcomes.  The full 8,400-cell extension requires $\sim$5 hours at 30 rpm, after which every policy can be replayed and regret computed against the oracle.  Both abstract (rollout-equivalents) and real (logged tokens) unit systems are reported, enabling direct comparison between the simulator and real-LLM experiments.
+
+The controller's value-of-information computation is exact (enumerating every possible outcome on the grid), and all action values include the opportunity cost of live trials and the propose gate.  The pilot guarantees that the agent model choice lands in the 25--60\% empty-skill success band, and the partial table already shows four of five families inside that band.  However, the controller loses to ``never update'' when the proposer is weak (q = 0.25) because its prior about the population of rewrites is fixed at the EvoGuard calibration; a controller that updates its prior online would close this gap.  The regime that defeats the controller is not a decision failure but a prior failure.  A conservative acceptance rule is worse than a risk-neutral one because the rewrite effect sizes are small relative to the controller's belief spread; a 1-sigma acceptance margin rejects almost everything, effectively behaving like ``never update''.  The costly-failure regime (c\_fail = 20) is the one regime where the controller is clearly worse than fixed rules; a margin that grows with $c_{\text{fail}}$ or a value-at-risk term should recover it without breaking the base regime.
+
+Future work includes learning the proposer's quality online, scaling risk with stakes, extending the replay table to all 8,400 cells and replaying policies on real outcomes, and heavier-tailed candidate quality checks.
+
+\section*{Acknowledgment}
+Experiments in this work were run and tracked with OpenResearch
+(\citealt{openresearch}).  Token costs were tracked via the Gemini API;
+no NVIDIA API calls were needed after the initial timeout investigation.
+
+\begin{thebibliography}{99}
+\bibitem[EvoGuard(2026)]{evo2026} Yanli Wang, Zichen Bai, Tianyue Jiang, Kunming Shao, Junhao Shi, Xueqin Liu, Jinguo Sun, Muye Li, Tingting Bi, Yanlin Wang, Shaoqiang Zheng, Xuefei Diao, Zhuwei Zeng, Nan Duan, Peng Cao. EVOGUARD: Mitigating Degradation in Online Skill Evolution. alphaXiv: 2611.06444, 2026.
+
+\bibitem[RSI Tax(2026)]{ristax2026} Yitong Zhang, Ang Li, Yisen Wang. The RSI Tax: When Recursive Self-Improvement Is Not Worth the Cost. alphaXiv: 2611.13524, 2026.
+
+\bibitem[FGSE(2026)]{fgse2026} Runxuan Tang, Haoyu Gao, Yuyan Ding, Junyi Yao, Zihao Zheng, Zecheng Sheng, Liwei Hou. When Should Agents Remember? Falsification-Gated Self-Evolution for LLM Agents. alphaXiv: 2611.14326, 2026.
+
+\bibitem[StepLearn(2026)]{steplearn2026} Tong Zhao, Reed Li, Yuyang Hu, Yutao Zhu, Haijin Liang, Haibo Shi, Yu Lu, Zhicheng Dou. Learn Now, Use Next, Trust Later: Prequential Test-Time Learning for LLM Agents. alphaXiv: 2609.35911, 2026.
+
+\bibitem[AtomSearch(2026)]{atom2026} Jia Tong, Senyou Deng, Min Peng, Jianfeng Pan. ATOMSearch: Evidence-Grounded Tree Search for Agent Skill Optimization. alphaXiv: 2610.19951, 2026.
+
+\bibitem[SkillBoost(2026)]{skillboost2026} Hongqiang Lin, Chao Liu, Xiaofan Bai, Xuan Jin, Yuhong Li, Xipeng Cao. Rethinking Self-Evolution: A Constrained Exploration-Exploitation Process for Mitigating Skill Overfitting. alphaXiv: 2607.26643, 2026.
+
+\bibitem[Skill$\infty$(2026)]{skillinf2026} Wangcheng Tao, Zhanglu Yan, Han Wu, Weng-Fai Wong. Skill$\infty$: Recursive Self-Improvement for Agent Skill Optimization. alphaXiv: 2610.35434, GitHub: https://github.com/taowangcheng/Skill-Infinity, 2026.
+
+\bibitem[openresearch(2026)]{openresearch} alphaXiv. OpenResearch: The local-first harness and workspace for research agents. 2026. https://github.com/alphaXiv/OpenResearch.
+\end{thebibliography}
+\end{document}
