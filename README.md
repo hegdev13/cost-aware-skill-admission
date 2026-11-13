@@ -9,6 +9,8 @@ Status: planning only. No experiments have been run.
 2. `docs/02_research_plan.md`: now vs target, research questions, setup, phases, kill criterion.
 3. `docs/03_outputs_and_presentation.md`: figures, tables, formats, possible outcomes.
 4. `docs/04_simulator_spec.md`: simulator design, calibration, baselines, tests.
+5. `docs/05_decision_trace_and_ui_spec.md`: event log, explore/exploit labeling, HTML and TUI viewers.
+6. `docs/06_replay_table_spec.md`: real-LLM replay table, task suite, models, rate cap, pilot.
 
 ## Layout
 - `docs/`: survey, plan, specs

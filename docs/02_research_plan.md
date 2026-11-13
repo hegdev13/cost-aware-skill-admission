@@ -55,9 +55,10 @@ One-sentence target: **a decision rule that, for every candidate update, picks s
 | P0 | Fix formal model, calibrate simulator parameters from published numbers, pre-register metrics and seeds | none | Spec reviewed by you |
 | P1 | Simulator + baselines + metrics + tests | CPU, minutes | Baselines reproduce expected orderings (accept-all worst under high-degradation, static best under no-signal) |
 | P2 | Proposed controllers + ablations, 30+ seeds, regime sweep | CPU, minutes to hours | Clear map of where each policy wins, with confidence intervals |
-| P3 | Optional theory: regret bound for the simplified setting | none | Bound or an honest statement that none was found |
-| P4 | Real-agent validation: small task stream (ALFWorld-style), frozen small model, 3 to 5 policies | GPU or API; needs your approval and budget | Qualitative agreement with simulator ordering |
-| P5 | Write-up | none | Paper draft + interactive figures |
+| P2b | Decision-trace logger + HTML and TUI viewers on simulator runs (`docs/05_decision_trace_and_ui_spec.md`) | CPU, minutes | Contract tests pass; every skill creation, use, accept and reject shows its rule and inputs |
+| P3 | Real-LLM replay table: pilot (~150 calls) then full build (~8,400 calls) with NVIDIA-hosted open models (`docs/06_replay_table_spec.md`) | API, free-tier assumed; capped at 12,000 calls and 20M tokens | Pilot criteria pass; table complete; real Δ distribution compared with the simulator |
+| P4 | Replay all policies on the real table, regret vs oracle, same viewers on real traces; short live-mode demo | CPU for replay; small API use for the live demo | Policy ordering on real outcomes reported next to the simulator ordering |
+| P5 | Optional: theory; optional multi-step (ALFWorld-style) stage; write-up | varies | Paper draft + interactive figures |
 
 **Kill criterion:** if after P2 the SRN-style baseline is within noise of our controller in every plausible regime, the contribution becomes a *negative/clarifying result* ("when does smart updating pay off?") and we reframe rather than force a win.
 
