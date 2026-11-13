@@ -8,6 +8,7 @@ Status: planning only. No experiments have been run.
 1. `docs/01_literature_survey.md`: what exists, what is covered, the gap.
 2. `docs/02_research_plan.md`: now vs target, research questions, setup, phases, kill criterion.
 3. `docs/03_outputs_and_presentation.md`: figures, tables, formats, possible outcomes.
+4. `docs/04_simulator_spec.md`: simulator design, calibration, baselines, tests.
 
 ## Layout
 - `docs/`: survey, plan, specs

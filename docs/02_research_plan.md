@@ -70,4 +70,4 @@ One-sentence target: **a decision rule that, for every candidate update, picks s
 ## 7. Immediate next steps (no compute)
 1. Second read of AtomSearch cost section and BEAM's Beta head to settle the posterior family.
 2. Decide the cost units (tokens only, or tokens plus a failure price) and the default price ratio.
-3. Write the simulator spec (P0) as `docs/03_simulator_spec.md` before any code.
+3. Write the simulator spec (P0) as `docs/04_simulator_spec.md` before any code.
