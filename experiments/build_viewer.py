@@ -128,15 +128,16 @@ HTML = r"""<!doctype html>
 <script id="payload" type="application/json">__PAYLOAD__</script>
 <script>
 const P = JSON.parse(document.getElementById('payload').textContent);
-const NAMES = P.policies;
+const POLS = P.policies;
+const NAMES = Object.keys(POLS);
 const state = {pol:NAMES[0], pol2:"", t:P.T, truth:false, exploreOnly:false, playing:false, tab:"dec"};
 const byId = id => document.getElementById(id);
 const esc = s => String(s==null?"":s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const fmt = x => (x==null||Number.isNaN(x)) ? "-" : (Math.abs(x)>=100? x.toFixed(0) : x.toFixed(3));
 
-function events(pol){ return NAMES[pol].events; }
+function events(pol){ return POLS[pol].events; }
 function truthMap(pol){
-  const m = {}; (NAMES[pol].truth||[]).forEach(t=>{ if(t.skill_id && t.true_value!=null) m[t.skill_id]=t; }); return m;
+  const m = {}; (POLS[pol].truth||[]).forEach(t=>{ if(t.skill_id && t.true_value!=null) m[t.skill_id]=t; }); return m;
 }
 function tRange(pol){
   const es = events(pol); let mx=0; es.forEach(e=>{ if(e.t>mx) mx=e.t; }); return Math.max(mx,1);
@@ -148,7 +149,7 @@ function fillSelects(){
   NAMES.forEach(n=>{ const o=document.createElement("option"); o.value=n; o.textContent=n; s2.appendChild(o); });
   s1.value=state.pol;
   byId("seed").textContent=P.seed; byId("reg").textContent=P.regime;
-  byId("scrub").max=P.T;
+  byId("scrub").max=P.T; byId("scrub").value=P.T;
 }
 
 function timeline(pol, tNow){
@@ -197,7 +198,7 @@ function ledger(pol, tNow){
     s+=`<rect x="${x.toFixed(1)}" y="10" width="${Math.max(w-1,0).toFixed(1)}" height="22" fill="${cols[i]}" opacity=".85"><title>${r[0]}: ${r[1].toFixed(1)}</title></rect>`; x+=w; });
   s+=`<text x="0" y="56" font-size="12" fill="#16181d">total cost ${total.toFixed(0)} rollout-equivalents so far</text>`;
   const ref = P.reference != null ? P.reference : null;
-  if(ref!=null) s+=`<text x="0" y="74" font-size="11" fill="#6b7280">reference (free-information oracle) ${ref.toFixed(0)} - regret ${(total-ref).toFixed(0)}</text>`;
+  if(ref!=null) s+=`<text x="0" y="74" font-size="11" fill="#6b7280">reference (cheaper of never-updating and the free-information oracle) ${ref.toFixed(0)} - regret ${(total-ref).toFixed(0)}</text>`;
   s+=`</svg>`;
   s+=`<table><tr><th>component</th><th>cost</th><th>share</th></tr>`;
   rows.forEach(r=>{ s+=`<tr><td>${r[0]}</td><td>${r[1].toFixed(1)}</td><td>${total? (100*r[1]/total).toFixed(1):0}%</td></tr>`; });
@@ -375,9 +376,10 @@ def main() -> None:
             "truth": tr.truth,
             "summary": {k: v for k, v in r.items() if isinstance(v, (int, float))},
         }
-        if pol == "oracle":
-            ref = r["total_cost"]
-    payload["reference"] = ref
+    # reference cost: the cheaper of never-updating and the free-information oracle (same seed)
+    oracle_cost = run_one(cfg, "oracle", args.seed)["total_cost"]
+    static_cost = payload["policies"]["static"]["summary"]["total_cost"]
+    payload["reference"] = min(oracle_cost, static_cost)
 
     html = HTML.replace("__PAYLOAD__", json.dumps(payload))
     (out / "viewer.html").write_text(html)

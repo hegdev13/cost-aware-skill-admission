@@ -82,3 +82,28 @@ def test_ledger_adds_up_to_the_total(trace):
     tasks = sum(e["cost"] for e in ev if e["type"] == "TASK_SERVED")
     other = sum(e["amount"] for e in ev if e["type"] == "COST_CHARGED")
     assert abs((tasks + other) - r["total_cost"]) < 1e-6
+
+
+# ---------------------------------------------------------------- real-browser smoke test
+import os
+import subprocess
+import sys
+
+CHROME = os.environ.get("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+
+
+@pytest.mark.skipif(not os.path.exists(CHROME), reason="no Chrome available for the browser smoke test")
+def test_html_viewer_runs_in_a_real_browser(tmp_path):
+    """Regression for a bug the Python-side tests missed: the page rendered as an empty shell
+    because the script threw on load (policies is an object, not an array)."""
+    out = tmp_path / "v"
+    subprocess.run([sys.executable, str(ROOT / "experiments" / "build_viewer.py"), "--out", str(out)],
+                   check=True, capture_output=True)
+    html = out / "viewer.html"
+    r = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--enable-logging=stderr", "--v=0",
+                        "--virtual-time-budget=8000", "--dump-dom", f"file://{html}"],
+                       capture_output=True, text=True, timeout=120)
+    assert "Uncaught" not in r.stderr, r.stderr[-800:]
+    assert '<option value="c3_voi_propose">' in r.stdout
+    assert 'class="card"' in r.stdout            # decision cards were drawn
+    assert "total cost" in r.stdout              # ledger was drawn

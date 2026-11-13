@@ -71,14 +71,16 @@ a paired difference of **-129 [-166, -91]**, with the controller better on 86% o
 | **ours** | **623** | **2,946** | 358 | 115 | 21 | 21 | 0.642 | 20 |
 
 The controller reaches the same skill quality as the greedy judge (0.642 vs 0.629 success)
-while making 14 fewer harmful commits, spending 83 fewer proposals, and paying 13 fewer
+while making 14 fewer harmful commits, spending 82 fewer proposals, and paying 13 fewer
 failures. The two fixed-probe rules buy the *highest* skill quality of all (always-verify
 reaches 0.647) and pay for it with 20,000 rollout-equivalents of verification - 8x the
 controller's regret and 33x the greedy judge's. This is the RSI Tax result reproduced inside
 a controlled stream: verification dominates update cost when it is bought unconditionally.
 
 Across the ten named regimes the controller is significantly better than the greedy judge in
-seven, tied in one, and worse in one (paired differences, 95% intervals):
+eight, tied in one (A), and worse in one (C) (paired differences, 95% intervals). The greedy
+judge is not the strongest fixed rule in every regime, so the next paragraph repeats the
+count against the best fixed rule *in each regime*; that is the fairer headline.
 
 | regime | what changes | ours - greedy judge | ours | greedy judge |
 |---|---|---|---|---|
@@ -92,6 +94,16 @@ seven, tied in one, and worse in one (paired differences, 95% intervals):
 | G_dear_judge | a comparison costs 1.0 | **-118 [-160, -77]** | 811 | 930 |
 | H_noisy_judge | judge accuracy 0.55 | **-132 [-185, -79]** | 1,075 | 1,207 |
 | J_no_judge | a comparison costs 100 | **-19,401 [-19,476, -19,326]** | 1,107 | 20,508 |
+
+**Against the best fixed rule in each regime** (corrected after verification; computed from
+`results/grid.csv`, paired bootstrap 95% intervals): the controller is better in **6** regimes
+(base, B, D, E, F, G), tied in **3** (A, H, J) and worse in **1** (C). The three regimes where
+the best fixed rule is not the greedy judge: in D it is threshold promote (ours -134
+[-218, -48]); in H and J it is the SRN-like note (ours -53 [-125, +19] and -20 [-84, +45], both
+tied). So J's headline of -19,401 is not an advantage of ours: it measures how badly a fixed
+"always ask the judge" rule fails when the judge is unaffordable, while a simple fixed rule
+(SRN-like) is already as good as the controller. An earlier version of this report said
+"seven better, one tied, one worse" (which does not sum to ten); the counts above replace it.
 
 Figure 1 shows the regret curves. The controller's curve stays lowest from the first few
 hundred tasks; the greedy judge's curve is indistinguishable in the base regime but diverges
@@ -107,9 +119,12 @@ proposer (20 seeds per cell). The controller wins **13 of 20 cells**, with a med
 -102 cost units over the best fixed rule in that cell. The three columns of the map are not
 symmetric:
 
-- **Good proposer, any probe price**: the controller wins, and by more as probes get
+- **Good proposer (q = 1.0), any probe price**: the controller wins, and by more as probes get
   expensive (at 2.0 per probe it is 154 units ahead). It buys the cheapest informative
   channel instead of the most obvious one.
+- **Very good proposer (q = 1.5) with cheap probes (0.2, 0.5)**: the greedy judge wins (by 92 and
+  24 units). When almost every candidate is good, accepting after one cheap look is hard to beat.
+  At probe prices of 1.0 and above the controller wins again.
 - **Medium proposer (q = 0.5)**: the fixed rules fail (threshold promote loses 968), the
   controller wins by 103-179. Here the deciding factor is *how much* to trust a rewrite.
 - **Weak proposer (q = 0.25)**: the controller loses to **never updating** (965 vs 574). Its
